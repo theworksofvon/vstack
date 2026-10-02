@@ -1,88 +1,75 @@
 ---
 name: skill-forge
-description: Create, move, or remove a skill and wire it into every harness at once. Use when the user wants a new skill, wants an existing one installed for Codex or opencode too, or asks why a skill shows up in one agent but not another.
+description: Create, move, or remove a skill and wire it into every harness at once. Use when the user wants a new skill, wants an existing one installed for Codex, opencode, or Cursor too, or asks why a skill shows up in one agent but not another.
 ---
 
-A skill lives in one place and is symlinked into three. Getting the plumbing
-right is mechanical; getting the writing right is not. This skill covers the
-plumbing and hands the writing to `writing-for-agents`.
+A skill lives in one place and is symlinked into every harness. Getting the
+plumbing right is mechanical; getting the writing right is not. This skill
+covers the plumbing and hands the writing to `writing-for-agents`.
 
 ## The layout
 
 ```
-~/src/theworksofvon/vstack/skills/<name>/SKILL.md   ← the only real copy
-~/.claude/skills/<name>            → symlink
-~/.codex/skills/<name>             → symlink
-~/.config/opencode/skills/<name>   → symlink
+<vstack>/skills/<name>/SKILL.md     ← the only real copy
+~/.claude/skills/<name>             → symlink
+~/.codex/skills/<name>              → symlink
+~/.config/opencode/skills/<name>    → symlink
+~/.cursor/skills/<name>             → symlink
 ```
 
-A skill that exists in the repo but is missing a symlink is invisible to that
-harness. This is the usual cause of "it works in Claude but not Codex".
+`<vstack>` is wherever the repo is cloned. `install.sh` at the repo root
+owns the list of harness directories; it is the single source of truth for
+where links go. A skill that exists in the repo but is missing a symlink is
+invisible to that harness. This is the usual cause of "it works in Claude
+but not Codex".
+
+Find the repo from any harness: `readlink ~/.claude/skills/skill-forge`
+prints the path to this skill, and the repo is two directories up.
 
 ## Creating one
 
-1. **Write it first.** Read `writing-for-agents` and follow it — that skill
-   owns how the document should read. Do not skip this step and hand-roll
-   prose; the frontmatter `description` is what decides whether the skill ever
-   fires, and it has rules.
+1. **Write it first.** Read `writing-for-agents` and follow it, including its
+   portability section. That skill owns how the document should read. The
+   frontmatter `description` is what decides whether the skill ever fires,
+   and it has rules.
 
 2. **Place it** at `skills/<name>/SKILL.md`. Use a kebab-case directory
    name matching the frontmatter `name`.
 
-3. **Link it into all three harnesses:**
+3. **Link it** by running `./install.sh` from the repo root. It links every
+   skill into every harness and prints a count per harness. Re-running it is
+   harmless.
 
-```bash
-D=~/src/theworksofvon/vstack/skills
-NAME=<name>
-for t in ~/.claude/skills ~/.codex/skills ~/.config/opencode/skills; do
-  mkdir -p "$t"
-  ln -sfn "$D/$NAME" "$t/$NAME"
-done
-```
+4. **Optionally add `agents/openai.yaml`** beside `SKILL.md`. Codex uses it
+   only for a display name and short description in its skill picker; the
+   skill loads without it.
 
-4. **Verify all three resolve:**
-
-```bash
-for t in ~/.claude/skills ~/.codex/skills ~/.config/opencode/skills; do
-  printf "%-38s %s\n" "$t/$NAME" "$([ -e "$t/$NAME" ] && echo OK || echo BROKEN)"
-done
-```
-
-5. **Commit the repo.** The symlinks are machine state; the skill is not. Only
-   the `skills/` directory belongs in git.
+5. **Commit the repo.** The symlinks are machine state; the skill is not.
+   Only the repo belongs in git.
 
 ## Removing one
 
-Remove the symlinks first, then the source — the reverse order leaves three
-broken links that fail silently:
+Remove the symlinks first, then the source. The reverse order leaves broken
+links that fail silently:
 
 ```bash
 NAME=<name>
-for t in ~/.claude/skills ~/.codex/skills ~/.config/opencode/skills; do
+for t in ~/.claude/skills ~/.codex/skills ~/.config/opencode/skills ~/.cursor/skills; do
   rm -f "$t/$NAME"
 done
-rm -rf ~/src/theworksofvon/vstack/skills/"$NAME"
+rm -rf "$(readlink ~/.claude/skills/skill-forge)/../$NAME"
 ```
 
 ## Vendored skills
 
 `skills/UPSTREAM` records which skills came from someone else's repo and
 at what commit. When adding a vendored skill, add a line there. When one has
-been edited locally, say so in that file — otherwise the next sync silently
+been edited locally, say so in that file, otherwise the next sync silently
 overwrites the local change.
 
 ## Auditing the wiring
 
-To find skills that are not linked everywhere:
-
-```bash
-D=~/src/theworksofvon/vstack/skills
-for s in "$D"/*/; do
-  n=$(basename "$s")
-  missing=""
-  for t in ~/.claude/skills ~/.codex/skills ~/.config/opencode/skills; do
-    [ -e "$t/$n" ] || missing="$missing $(basename $(dirname $t))"
-  done
-  [ -n "$missing" ] && echo "$n missing from:$missing"
-done
-```
+`./install.sh` prints how many skills each harness sees. If the counts
+differ, or differ from the number of directories under `skills/`, something
+is unlinked or a non-symlink file is squatting on the name; the script
+reports those as `SKIP` lines.

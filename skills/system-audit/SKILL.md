@@ -6,6 +6,12 @@ description: Sweep the machine for drift — repos with unpushed or uncommitted 
 Report what has drifted. Do not fix anything until the user has seen the report
 and said which parts to act on.
 
+This skill is written for one machine layout: every repo under
+`~/src/<org>/<repo>`, a dotfiles repo at `~/src/theworksofvon/dotfiles`
+holding a `Brewfile` and a mise config, and Homebrew plus mise as the whole
+toolchain. On a machine laid out differently, adapt the paths in each command
+before running it, or skip the sections that do not apply.
+
 ## Why this exists
 
 This machine once carried an 18GB copy of a dead user account, three divergent

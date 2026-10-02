@@ -20,3 +20,22 @@ The invocation cut of splitting (the sequence cut lives in `SKILL.md`): split of
 ## Router skills
 
 When user-invoked skills multiply past what you can remember, that piled-up cognitive load is cured by a **router skill**: one user-invoked skill that names the others and when to reach for each, so the human has one skill to remember instead of many. It can only hint, never fire them: user-invoked skills have no description, so nothing but the human can reach them.
+
+## Portability
+
+A skill is read by every harness it is linked into, on any machine that
+clones the repo. Write the body so it survives that:
+
+- **Paths**: name nothing under a specific user's home. Derive locations from
+  the environment (`$HOME`, the skill's own directory, `git rev-parse
+  --show-toplevel`) or say "the repo root" and let the agent resolve it.
+- **Tools**: a skill that depends on a CLI (`gh`, `fd`, `mise`, an API key)
+  says so in its first paragraph, so a reader on a machine without it knows
+  before running the first command.
+- **Harness features**: refer to subagents, tool names, and slash commands
+  generically. A body that says "use the Agent tool" works in one harness;
+  "dispatch a subagent" works in all of them.
+- **Machine assumptions**: if the skill only makes sense for one layout or
+  workflow, say that up front rather than generalising it into mush.
+  `system-audit` is the model: one paragraph of assumptions, then the real
+  thing.
