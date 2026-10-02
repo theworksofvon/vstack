@@ -1,0 +1,13 @@
+{
+  "name": "vstack",
+  "displayName": "vstack",
+  "version": "0.1.0",
+  "description": "Personal collection of agent skills that have earned their keep, taken from other stacks and adapted to work across Claude Code, Codex, and opencode.",
+  "author": { "name": "Davontae Jackson" },
+  "homepage": "https://github.com/theworksofvon/vstack",
+  "repository": "https://github.com/theworksofvon/vstack",
+  "license": "MIT",
+  "keywords": ["vstack", "skills", "workflow", "claude-code", "codex", "opencode"],
+  "skills": "./skills/",
+  "agents": "./agents/"
+}
