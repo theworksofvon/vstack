@@ -14,7 +14,7 @@ Template: `codex exec --json -m {model} -s workspace-write --skip-git-repo-check
 
 The packet goes in on stdin. `--json` streams one JSONL event per line; mo.py de-duplicates by event id and sums any `usage` objects it finds. `-o` writes the final assistant message to a file inside the run directory, which is the artifact to hand to the next stage. Use `-s read-only` for planner and reviewer stages. Cost is not reported by the CLI, so Codex stages record as `estimated` when `[pricing]` has a rate card for the model and `unavailable` otherwise.
 
-Codex model names change often. Check `codex --help` or the model picker rather than trusting a name in a document, and keep the mapping in `[models]`.
+Codex model names change often, and the set differs by login: a ChatGPT subscription reaches a different list than an API key, and the error for the wrong one says so. Check the model picker rather than trusting a name in a document, and keep the mapping in `[models]`.
 
 ## opencode
 

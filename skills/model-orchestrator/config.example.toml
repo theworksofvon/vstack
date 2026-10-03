@@ -43,9 +43,15 @@ fable = { model = "claude-fable-5-1", provider = "claude" }
 opus = { model = "claude-opus-5-5", provider = "claude" }
 sonnet = { model = "claude-sonnet-5-5", provider = "claude" }
 haiku = { model = "claude-haiku-4-5", provider = "claude" }
+# Codex on a ChatGPT subscription reaches the luna/terra line below. The
+# gpt-6-astra, gpt-6-sol, and gpt-6-terra models answer "not supported when
+# using Codex with a ChatGPT account": they need API-key billing. On an
+# API-key login, swap these aliases for that line.
 gpt6 = { model = "gpt-6-luna", provider = "codex" }
 terra = { model = "gpt-5.6-terra", provider = "codex" }
 luna = { model = "gpt-5.6-luna", provider = "codex" }
+# astra = { model = "gpt-6-astra", provider = "codex" }   # API key only
+# sol = { model = "gpt-6-sol", provider = "codex" }       # API key only
 glm-flash = { model = "opencode-go/glm-5.3-flash", provider = "opencode" }
 deepseek-flash = { model = "opencode-go/deepseek-v4-flash", provider = "opencode" }
 kimi = { model = "opencode-go/kimi-k2.7-code", provider = "opencode" }
