@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Feedback"
+  short_description: "Resolve PR review comments and report a decision per comment"
+  default_prompt: "Use $pr-feedback to act on the review comments in the event packet and write the report."

@@ -42,6 +42,7 @@ without cloning, but that path covers Claude Code only.
 | `code-audit` | cut dead paths, magic numbers, nesting, and bunched functions while holding behavior fixed |
 | `codebase-design` | shared vocabulary for deep modules, seams, and interfaces |
 | `pr-reviewer` | review-only pass for correctness, regression, and security defects |
+| `pr-feedback` | act on a batch of PR review comments and report a decision per comment |
 | `gh-stack` | stacked branches and PRs |
 | `model-orchestrator` | split long tasks across agents and model backends |
 | `skill-forge` | create, move, or remove a skill and wire it into every harness |
