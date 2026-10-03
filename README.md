@@ -44,9 +44,9 @@ without cloning, but that path covers Claude Code only.
 | `pr-reviewer` | review-only pass for correctness, regression, and security defects |
 | `pr-feedback` | act on a batch of PR review comments and report a decision per comment |
 | `gh-stack` | stacked branches and PRs |
-| `model-orchestrator` | split long tasks across agents and model backends |
+| `model-orchestrator` | relay a task through planner, implementer, and reviewer on different models, via T3 Code delegation or provider CLIs, with a ledger per stage |
 | `skill-forge` | create, move, or remove a skill and wire it into every harness |
-| `system-audit` | find drift on the machine: unpushed work, duplicate clones, toolchain mismatch. Assumes a `~/src/<org>/<repo>` layout with Homebrew and mise |
+| `system-audit` | find drift on the machine: unpushed work, duplicate clones, toolchain mismatch. Assumes a Mac with Homebrew and repos under one source root; two paths to set at the top |
 | `writing-for-agents` | how to write documents an agent consumes |
 | `grilling` | stress-test a plan by relentless questioning |
 | `explain` | router: picks a format for "help me understand X" and hands off to one of the four below |

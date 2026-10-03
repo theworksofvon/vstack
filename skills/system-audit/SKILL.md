@@ -6,15 +6,22 @@ description: Sweep the machine for drift — repos with unpushed or uncommitted 
 Report what has drifted. Do not fix anything until the user has seen the report
 and said which parts to act on.
 
-This skill is written for one machine layout: every repo under
-`~/src/<org>/<repo>`, a dotfiles repo at `~/src/theworksofvon/dotfiles`
-holding a `Brewfile` and a mise config, and Homebrew plus mise as the whole
-toolchain. On a machine laid out differently, adapt the paths in each command
-before running it, or skip the sections that do not apply.
+Assumes a Mac with Homebrew, repos kept two levels deep under one source
+root (`<root>/<org>/<repo>`), and a dotfiles repo that holds a `Brewfile`
+and, optionally, a mise config. Set the two paths once and every command
+below uses them. `DOTFILES` defaults to the repo that `~/.zshrc` links into,
+which is how a symlink-farm dotfiles setup looks; override it if yours
+differs. Skip any section whose tool is not installed.
+
+```bash
+SRC="${SRC:-$HOME/src}"
+DOTFILES="${DOTFILES:-$(cd "$(dirname "$(readlink -f ~/.zshrc)")" && git rev-parse --show-toplevel)}"
+echo "SRC=$SRC DOTFILES=$DOTFILES"
+```
 
 ## Why this exists
 
-This machine once carried an 18GB copy of a dead user account, three divergent
+One machine once carried an 18GB copy of a dead user account, three divergent
 copies of the same untracked project, and seven tools installed by both
 Homebrew and mise with PATH order silently picking the winner. Every one of
 those was invisible until someone looked. This is the looking.
@@ -25,13 +32,13 @@ The only irreversible loss is work that exists in exactly one place. Check it
 first, and never propose deleting anything until this section is clean.
 
 ```bash
-for d in ~/src/*/*/; do
+for d in "$SRC"/*/*/; do
   [ -d "$d/.git" ] || continue
   dirty=$(git -C "$d" status --porcelain | wc -l | tr -d ' ')
   unpushed=$(git -C "$d" log --branches --not --remotes --oneline | wc -l | tr -d ' ')
   stash=$(git -C "$d" stash list | wc -l | tr -d ' ')
   [ "$dirty$unpushed$stash" = "000" ] && continue
-  printf "%-46s dirty=%-4s unpushed=%-4s stash=%s\n" "${d#$HOME/src/}" "$dirty" "$unpushed" "$stash"
+  printf "%-46s dirty=%-4s unpushed=%-4s stash=%s\n" "${d#$SRC/}" "$dirty" "$unpushed" "$stash"
 done
 ```
 
@@ -39,10 +46,10 @@ Report untracked projects too — a directory with source files and no `.git` is
 work that one `rm` destroys:
 
 ```bash
-fd -t d -d 3 . ~/src --min-depth 2 | while read -r d; do
+fd -t d -d 3 . "$SRC" --min-depth 2 | while read -r d; do
   [ -d "$d/.git" ] && continue
   fd -t f -d 2 -e ts -e tsx -e py -e cs -e go . "$d" -E node_modules -E .venv 2>/dev/null \
-    | head -1 | grep -q . && echo "untracked project: ${d#$HOME/src/}"
+    | head -1 | grep -q . && echo "untracked project: ${d#$SRC/}"
 done
 ```
 
@@ -51,9 +58,9 @@ done
 The same repo checked out twice diverges silently. Group by remote:
 
 ```bash
-for d in ~/src/*/*/; do
+for d in "$SRC"/*/*/; do
   [ -d "$d/.git" ] || continue
-  printf "%s\t%s\n" "$(git -C "$d" remote get-url origin 2>/dev/null)" "${d#$HOME/src/}"
+  printf "%s\t%s\n" "$(git -C "$d" remote get-url origin 2>/dev/null)" "${d#$SRC/}"
 done | sort | awk -F'\t' 'NF==2 && $1!=""{c[$1]=c[$1]" "$2; n[$1]++} END{for(r in n) if(n[r]>1) print r":"c[r]}'
 ```
 
@@ -65,7 +72,7 @@ still hold different uncommitted work.
 ## 3. Toolchain drift
 
 A tool in both Homebrew and mise means PATH order decides, and it changes
-without warning. Find the overlap:
+without warning. If mise is installed, find the overlap:
 
 ```bash
 comm -12 <(brew leaves | sort) <(mise ls --json | jq -r 'keys[]' | sed 's|.*:||' | sort)
@@ -74,7 +81,7 @@ comm -12 <(brew leaves | sort) <(mise ls --json | jq -r 'keys[]' | sed 's|.*:||'
 Find the Brewfile drift in both directions:
 
 ```bash
-cd ~/src/theworksofvon/dotfiles
+cd "$DOTFILES"
 comm -3 <(brew leaves | sort) <(rg -o '^brew "([^"]+)"' -r '$1' Brewfile | sed 's|.*/||' | sort)
 comm -3 <(brew list --cask | sort) <(rg -o '^cask "([^"]+)"' -r '$1' Brewfile | sed 's|.*/||' | sort)
 ```
@@ -83,7 +90,7 @@ Empty output from both means the manifest matches the machine.
 
 ## 4. Broken symlinks
 
-`$HOME` is a symlink farm into the dotfiles repo. A stale link fails silently:
+If `$HOME` is a symlink farm into the dotfiles repo, a stale link fails silently:
 
 ```bash
 find ~ -maxdepth 3 -type l ! -exec test -e {} \; -print 2>/dev/null

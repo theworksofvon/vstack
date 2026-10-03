@@ -1,6 +1,6 @@
 # Provider adapters
 
-This skill is provider-neutral. Model labels such as `claude`, `codex`, or `gpt` are aliases only; resolve them through `.orchestrator/config.toml` and the CLIs installed in the current environment. Three providers have working templates in [config.example.toml](../config.example.toml); `mo profiles` shows how the current config resolves each role.
+This is the CLI transport, for any harness without an app-owned delegation tool: a plain terminal, Claude Code or Codex run directly, opencode. Inside T3 Code use [t3-code.md](t3-code.md) instead. Model labels such as `claude`, `codex`, or `gpt` are aliases only; resolve them through `.orchestrator/config.toml` and the CLIs installed in the current environment. Three providers have working templates in [config.example.toml](../config.example.toml); `mo profiles` shows how the current config resolves each role.
 
 ## Claude Code
 

@@ -34,8 +34,9 @@ implementer = "glm-flash"
 reviewer = "sol"
 
 # Aliases keep profiles stable while concrete model IDs move underneath.
-# Check `claude --help`, `codex --help`, and `opencode models` when these
-# names go stale.
+# Inside T3 Code the live catalog from orchestrator_capabilities wins over
+# this table. Elsewhere, check `claude --help`, `codex --help`, and
+# `opencode models` when these names go stale.
 [models]
 fable = { model = "claude-fable-5-1", provider = "claude" }
 opus = { model = "claude-opus-5", provider = "claude" }

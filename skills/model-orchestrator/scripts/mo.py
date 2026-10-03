@@ -233,6 +233,27 @@ def run_stage(args) -> int:
     return exit_code
 
 
+def record_stage(args) -> int:
+    """Ledger a stage that another transport ran (a T3 Code delegate_task, a user-run bridge).
+
+    Writes the same run directory and ledger row as run-stage, so usage, report,
+    export, and dashboard see every stage regardless of how it reached a model.
+    """
+    root = Path(args.root).resolve(); orch, _ = paths(root)
+    run_id = args.run_id or uuid.uuid4().hex[:12]
+    run_dir = orch / "runs" / run_id; run_dir.mkdir(parents=True, exist_ok=True)
+    task_file = run_dir / "task.md"; message_file = run_dir / "last-message.md"
+    if args.input: task_file.write_text(redact(Path(args.input).read_text(encoding="utf-8")), encoding="utf-8")
+    if args.output: message_file.write_text(redact(Path(args.output).read_text(encoding="utf-8")), encoding="utf-8")
+    usage = {"input_tokens": args.input_tokens, "output_tokens": args.output_tokens, "cached_input_tokens": None, "reasoning_tokens": None}
+    status = "exact" if args.cost_usd is not None else "unavailable"
+    ended = now()
+    record = {"task_id": args.task_id, "run_id": run_id, "stage": args.stage, "profile": None, "role": args.role, "provider": args.provider, "requested_model": args.model, "resolved_model": args.model, "session_id": args.session_id, "started_at": None, "ended_at": ended, "duration_seconds": args.duration, "api_duration_seconds": None, **usage, "provider_cost_usd": args.cost_usd, "rate_card_estimate_usd": None, "cost_status": status, "exit_code": 0 if args.success else 1, "success": args.success, "raw_output_path": None, "error_path": None, "parsed_json": False, "cli_version": None, "transport": args.transport, "message_path": str(message_file.relative_to(root)) if message_file.exists() else None}
+    append_record(root, record)
+    (run_dir / "checkpoint.json").write_text(json.dumps({"run_id": run_id, "stage": args.stage, "status": "success" if args.success else "failed", "recorded_at": ended, "record": record}, indent=2))
+    print(json.dumps(record, indent=2)); return 0
+
+
 def summarize(rows: list[dict], group: str | None = None) -> dict:
     def one(items):
         runs = {x.get("run_id") for x in items}
@@ -275,6 +296,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="mo"); p.add_argument("--root", default=".")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run-stage"); r.add_argument("--task-id", required=True); r.add_argument("--stage", required=True); r.add_argument("--provider"); r.add_argument("--model"); r.add_argument("--profile"); r.add_argument("--role", choices=["planner", "implementer", "reviewer"]); r.add_argument("--run-id"); r.add_argument("--input"); r.add_argument("--command"); r.add_argument("--timeout", type=float, default=1800); r.add_argument("--cli-version"); r.add_argument("--resume", action="store_true"); r.set_defaults(fn=run_stage)
+    rc = sub.add_parser("record", help="ledger a stage run by another transport"); rc.add_argument("--task-id", required=True); rc.add_argument("--stage", required=True); rc.add_argument("--role", choices=["planner", "implementer", "reviewer"]); rc.add_argument("--provider", required=True); rc.add_argument("--model", required=True); rc.add_argument("--transport", default="t3-delegate"); rc.add_argument("--run-id"); rc.add_argument("--input"); rc.add_argument("--output"); rc.add_argument("--session-id"); rc.add_argument("--duration", type=float); rc.add_argument("--input-tokens", type=int); rc.add_argument("--output-tokens", type=int); rc.add_argument("--cost-usd", type=float); rc.add_argument("--failed", dest="success", action="store_false"); rc.set_defaults(fn=record_stage)
     pr = sub.add_parser("profiles"); pr.set_defaults(fn=profiles_cmd)
     u = sub.add_parser("usage"); u.add_argument("--by-model", action="store_true"); u.add_argument("--by-stage", action="store_true"); u.set_defaults(fn=lambda a: (print(json.dumps(summarize(read_ledger(Path(a.root)), "resolved_model" if a.by_model else "stage" if a.by_stage else None), indent=2)) or 0))
     q = sub.add_parser("report"); q.add_argument("task_id"); q.set_defaults(fn=lambda a: (print(json.dumps(summarize([x for x in read_ledger(Path(a.root)) if x.get("task_id") == a.task_id]), indent=2)) or 0))

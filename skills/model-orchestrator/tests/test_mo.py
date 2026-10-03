@@ -111,5 +111,15 @@ output_per_1m = 2.0
         d = run(self.root, "dashboard", "--write-only"); self.assertEqual(d.returncode, 0); self.assertIn("dashboard.html", d.stdout)
         self.assertIn('"stages": 1', (self.root / ".orchestrator" / "dashboard.html").read_text())
 
+    def test_record_ledgers_an_external_stage(self):
+        packet = self.root / "packet.md"; packet.write_text("TASK\n- Objective: x\napi_key=hunter2")
+        result = self.root / "result.md"; result.write_text("done")
+        r = run(self.root, "record", "--task-id", "T-9", "--stage", "review", "--role", "reviewer", "--provider", "codex", "--model", "gpt-x", "--input", str(packet), "--output", str(result), "--duration", "12.5")
+        self.assertEqual(r.returncode, 0, r.stderr); rec = json.loads(r.stdout)
+        self.assertEqual((rec["transport"], rec["cost_status"], rec["success"]), ("t3-delegate", "unavailable", True))
+        run_dir = self.root / ".orchestrator" / "runs" / rec["run_id"]
+        self.assertNotIn("hunter2", (run_dir / "task.md").read_text()); self.assertEqual((run_dir / "last-message.md").read_text(), "done")
+        report = json.loads(run(self.root, "report", "T-9").stdout); self.assertEqual(report["runs"], 1)
+
 
 if __name__ == "__main__": unittest.main()
