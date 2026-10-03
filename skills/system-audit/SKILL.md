@@ -7,15 +7,21 @@ Report what has drifted. Do not fix anything until the user has seen the report
 and said which parts to act on.
 
 Assumes a Mac with Homebrew, repos kept two levels deep under one source
-root (`<root>/<org>/<repo>`), and a dotfiles repo that holds a `Brewfile`
-and, optionally, a mise config. Set the two paths once and every command
-below uses them. `DOTFILES` defaults to the repo that `~/.zshrc` links into,
-which is how a symlink-farm dotfiles setup looks; override it if yours
-differs. Skip any section whose tool is not installed.
+root (`<root>/<org>/<repo>`), and a dotfiles repo holding a `Brewfile` and,
+optionally, a mise config. The block below finds both paths: the source
+root is whichever common code directory holds the most repos, and the
+dotfiles repo is the one `~/.zshrc` links into, or failing that the first
+`Brewfile` under home. Run it first, read the echoed line, and only if it
+is wrong set `SRC` or `DOTFILES` by hand. Skip any section whose tool is
+not installed.
 
 ```bash
-SRC="${SRC:-$HOME/src}"
-DOTFILES="${DOTFILES:-$(cd "$(dirname "$(readlink -f ~/.zshrc)")" && git rev-parse --show-toplevel)}"
+SRC="${SRC:-$(for d in ~/src ~/code ~/dev ~/projects ~/repos ~/Developer ~/work; do
+  [ -d "$d" ] || continue
+  printf '%s %s\n' "$(fd -H -t d -d 3 '^\.git$' "$d" | wc -l | tr -d ' ')" "$d"
+done | sort -rn | awk 'NR==1 && $1>0 {print $2}')}"
+DOTFILES="${DOTFILES:-$(cd "$(dirname "$(readlink -f ~/.zshrc)")" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)}"
+[ -n "$DOTFILES" ] || DOTFILES="$(fd -H -t f -d 4 '^Brewfile$' "$HOME" | head -1 | xargs -r dirname)"
 echo "SRC=$SRC DOTFILES=$DOTFILES"
 ```
 
