@@ -49,6 +49,11 @@ without cloning, but that path covers Claude Code only.
 | `system-audit` | find drift on the machine: unpushed work, duplicate clones, toolchain mismatch. Assumes a `~/src/<org>/<repo>` layout with Homebrew and mise |
 | `writing-for-agents` | how to write documents an agent consumes |
 | `grilling` | stress-test a plan by relentless questioning |
+| `explain` | router: picks a format for "help me understand X" and hands off to one of the four below |
+| `explain-ste` | prose in ASD-STE100 Simplified Technical English, with a dial to relax it |
+| `explain-diagram` | Mermaid diagram, rendered to SVG or an HTML preview |
+| `explain-html` | one self-contained interactive HTML page |
+| `explain-video` | narrated Manim animation; needs `uv`, `ffmpeg`, and a narrator |
 | `retro`, `teach`, `wait-what` | reflection and explanation helpers |
 
 ## Adding a skill
