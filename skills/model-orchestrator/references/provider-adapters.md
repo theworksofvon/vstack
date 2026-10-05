@@ -1,6 +1,6 @@
 # Provider adapters
 
-This skill is provider-neutral. Model labels such as `claude`, `codex`, or `gpt` are aliases only; resolve them through `.orchestrator/config.toml` and the CLIs installed in the current environment. Three providers have working templates in [config.example.toml](../config.example.toml); `mo profiles` shows how the current config resolves each role.
+This is the CLI transport, for any harness without an app-owned delegation tool: a plain terminal, Claude Code or Codex run directly, opencode. Inside T3 Code use [t3-code.md](t3-code.md) instead. Model labels such as `claude`, `codex`, or `gpt` are aliases only; resolve them through `.orchestrator/config.toml` and the CLIs installed in the current environment. Three providers have working templates in [config.example.toml](../config.example.toml); `mo profiles` shows how the current config resolves each role.
 
 ## Claude Code
 
@@ -14,7 +14,7 @@ Template: `codex exec --json -m {model} -s workspace-write --skip-git-repo-check
 
 The packet goes in on stdin. `--json` streams one JSONL event per line; mo.py de-duplicates by event id and sums any `usage` objects it finds. `-o` writes the final assistant message to a file inside the run directory, which is the artifact to hand to the next stage. Use `-s read-only` for planner and reviewer stages. Cost is not reported by the CLI, so Codex stages record as `estimated` when `[pricing]` has a rate card for the model and `unavailable` otherwise.
 
-Codex model names change often. Check `codex --help` or the model picker rather than trusting a name in a document, and keep the mapping in `[models]`.
+Codex model names change often, and the set differs by login: a ChatGPT subscription reaches a different list than an API key, and the error for the wrong one says so. Check the model picker rather than trusting a name in a document, and keep the mapping in `[models]`.
 
 ## opencode
 
