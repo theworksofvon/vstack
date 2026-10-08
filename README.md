@@ -43,6 +43,7 @@ without cloning, but that path covers Claude Code only.
 | `codebase-design` | shared vocabulary for deep modules, seams, and interfaces |
 | `pr-reviewer` | review-only pass for correctness, regression, and security defects |
 | `pr-feedback` | act on a batch of PR review comments and report a decision per comment |
+| `guided-review` | discuss a session from the local guided review app and record the verdicts and comments that you give it |
 | `gh-stack` | stacked branches and PRs |
 | `model-orchestrator` | relay a task through planner, implementer, and reviewer on different models, via T3 Code delegation or provider CLIs, with a ledger per stage |
 | `skill-forge` | create, move, or remove a skill and wire it into every harness |
