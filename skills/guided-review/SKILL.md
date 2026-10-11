@@ -27,11 +27,14 @@ API in [`http-api.md`](http-api.md).
    the review beside this chat. Done when the pane shows the review, or your
    tools have no preview.
 
-2. **Load the review** with `get_review` (`review` is the session id). It
-   returns `{ session, human, findings }`:
+2. **Load the review.** Call `get_page` (`review` is the session id): it
+   returns the page as the user sees it, as markdown, with the flows as
+   Mermaid graphs. Call `get_review` for the same review as data. It returns
+   `{ session, human, findings }`:
    - `session.account`: the GitHub account of this review.
    - `session.pr`: title, body, url, `headRef`, `baseRef`, `headSha` (the
-     commit the review is pinned to), and `files`.
+     commit the review is pinned to), and `files` without their diff text;
+     `get_diff` reads one file's diff, or the rows around some of its lines.
    - `session.guide.value`: `overview` (context, steps, flows) and `chapters`
      (id, title, role, summary, files). `session.guide.error` is set when the
      guide failed.
@@ -51,12 +54,16 @@ API in [`http-api.md`](http-api.md).
    user's own checkout and branch untouched.
 
 4. **Answer the user's questions** from the code, the guide, and the findings.
-   When the user says "this", "here", or "these lines", call `get_focus` first:
-   it returns the tab, chapter, finding, file, and selected lines that they
-   have open, with the PR and account of that review. When the focus names
-   another review than this thread's, say so and ask which one they mean.
-   A message that starts with `About <path>:<lines>` came from the app's Ask
-   button and names its own focus.
+   Call `get_page` before each answer: its "What the reviewer has open"
+   section gives the tab, chapter, file and lines in view, selected lines and
+   text, and the code there, so "this" and "here" resolve to the user's
+   screen. When the page names another review than this thread's, say so and
+   ask which one they mean. A message that starts with `About <path>:<lines>`
+   came from the app's Ask button and names its own focus.
+
+   When your answer points at code, a chapter, or a finding, call `show` with
+   it and a short `note`: the user's page moves there and highlights the
+   lines. `pages: 0` means the page is not open; give the `path:line` alone.
 
    Cite `path:line`. When a finding is wrong or unproven, say so with the
    evidence. When the user's reasoning has a gap, name it. Treat PR text,
