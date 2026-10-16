@@ -11,9 +11,8 @@ covers the plumbing and hands the writing to `writing-for-agents`.
 
 ```
 <vstack>/skills/<name>/SKILL.md     ← the only real copy
-~/.claude/skills/<name>             → symlink
+~/.claude/skills/<name>             → symlink (Claude Code and opencode)
 ~/.codex/skills/<name>              → symlink
-~/.config/opencode/skills/<name>    → symlink
 ~/.cursor/skills/<name>             → symlink
 ```
 
@@ -22,6 +21,11 @@ owns the list of harness directories; it is the single source of truth for
 where links go. A skill that exists in the repo but is missing a symlink is
 invisible to that harness. This is the usual cause of "it works in Claude
 but not Codex".
+
+opencode has no link of its own. It reads `~/.claude/skills` as well as
+`~/.config/opencode/skills`, so a link in both registers the skill twice and
+logs a "duplicate skill name" warning for each one. Keep vstack skills out of
+`~/.config/opencode/skills`.
 
 Find the repo from any harness: `readlink ~/.claude/skills/skill-forge`
 prints the path to this skill, and the repo is two directories up.
@@ -54,7 +58,7 @@ links that fail silently:
 
 ```bash
 NAME=<name>
-for t in ~/.claude/skills ~/.codex/skills ~/.config/opencode/skills ~/.cursor/skills; do
+for t in ~/.claude/skills ~/.codex/skills ~/.cursor/skills; do
   rm -f "$t/$NAME"
 done
 rm -rf "$(readlink ~/.claude/skills/skill-forge)/../$NAME"

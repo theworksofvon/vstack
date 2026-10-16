@@ -6,11 +6,12 @@ set -euo pipefail
 VSTACK="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS="$VSTACK/skills"
 
-# Add a harness by adding its user-level skills directory here.
+# Add a harness by adding its user-level skills directory here. opencode is
+# absent on purpose: it also reads ~/.claude/skills, so a second link would
+# register every skill twice.
 TARGETS=(
   "$HOME/.claude/skills"
   "$HOME/.codex/skills"
-  "$HOME/.config/opencode/skills"
   "$HOME/.cursor/skills"
 )
 
