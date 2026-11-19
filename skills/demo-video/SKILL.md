@@ -68,8 +68,9 @@ read it when you set a length or a pace.
    [the scene API](#scene-api), each scene in [the scene shape](#scene-shape).
    One scene per narration file, same number. A scene can also live in its
    own `scene_NN.py` beside `scenes.py`; `record` loads both.
-   After the edit step, set each `[pause N]` so a line starts when its
-   beat starts; `edit` prints the lengths, and `frames/NN/cut.json` has the
+   After the edit step, make each line start when its beat starts: add a
+   sentence before a line that starts too early, and cut words before one
+   that starts late; `edit` prints the lengths, and `frames/NN/cut.json` has the
    click and camera times.
 6. **Record.** `demo record <slug>`, or `demo record <slug> 03` for 1
    scene. After each scene, read `shots/last.png` and 3 frames from
@@ -81,7 +82,9 @@ read it when you set a length or a pace.
    Check must print `PASS`: it fails on more than 3 flashes in 1 second, on
    a cut through black, and on sound and picture of different length. Then
    read the `final.sheet.jpg` it wrote; every scene must show what its
-   narration says. Fix and rebuild until both hold.
+   narration says. In `demo` mode the `sound` line must show pauses at a
+   third of the length or less; above that, add narration. Fix and rebuild
+   until all 3 hold.
 9. **Report** the path of `final.mp4`, its length, the mode, the narrator
    used, what was a stand-in, and anything visible that the user did not
    ask for (a real name, an error row).
@@ -91,8 +94,8 @@ When you can start subagents and the demo has 3 scenes or more, read
 
 ## Scene shape
 
-A scene is 1 idea, told in 5 beats. Each beat has 1 narration line, with a
-pause after it.
+A scene is 1 idea, told in 5 beats. Each beat has its narration, and the
+talk runs on from one beat to the next.
 
 | beat   | on screen                                                | tool                          |
 | ------ | -------------------------------------------------------- | ----------------------------- |
@@ -164,20 +167,42 @@ Rules the tool cannot enforce:
 
 ## Narration
 
-Write for the ear: the text is heard once, at the speed of speech.
+Write it as a colleague talks through a screen share: the voice keeps
+going, and each sentence leads to the next.
 
-- **1 idea per sentence, 12 words at most**, in the words a user of the app
-  says. Say what the viewer sees now: "Stamp the field", then the result.
+- **Talk through the scene.** The narration is as long as its picture,
+  within 1 s. Silence is a breath between 2 sentences.
+- **Fill a wait with talk**, in this order: a detail the screen shows (a
+  number, a name, a place on the page); the reason for the step; a short
+  aside or a question to the viewer; a link to the next step.
+- **Say only what this take shows.** Read the frames before a detail goes
+  in: a count, a field name and a word such as "missing" must match the
+  recording.
+- **Use spoken words:** contractions, "we" and "you", "Now", "And there it
+  is". 1 idea per sentence, 12 words at most.
 - **Read it aloud once.** Rewrite each place where the tongue trips or a
   breath runs out.
-- **Pauses are part of the text.** An empty line is 0.5 s; `[pause 1.2]` is
-  1.2 s. Put one before each new step and after each result, so the voice
-  waits for the screen.
+- **An empty line is a 0.5 s breath.** `[pause 1.0]` is for a beat that no
+  true sentence can fill; 1 s is the most.
 - **Too long? Cut words.** Keep `--speed` at 1.0; a faster voice sounds
   pressed.
 - **Words the voice says wrong** go in `narration/pronounce.json`, as
   `{"MI": "M I", "PFS": "P F S"}`. Listen for product names, short forms and
   place names, then run `narrate` again.
+
+The same beat, flat and then spoken:
+
+```text
+Select a field.
+[pause 1.0]
+The report opens at the page, with the quote marked.
+```
+
+```text
+Pick any field, say, the stoping method.
+
+The report jumps to the right page, and the quote is marked for you.
+```
 
 ## Voice
 

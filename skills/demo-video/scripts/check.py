@@ -61,7 +61,10 @@ def report(video: Path) -> list[str]:
     print(f"file      {video}")
     print(f"length    {length:.1f} s")
     print(f"cuts      {len(found)} hard cuts (a low estimate: slow fades do not count)")
-    print(f"sound     {loud} LUFS, {pauses} pauses, {quiet:.1f} s of pause")
+    share = quiet / length if length else 0
+    print(
+        f"sound     {loud} LUFS, {pauses} pauses, {quiet:.1f} s of pause, {share:.0%} of the length"
+    )
     print(
         f"flashes   {len(flashing)} strobes {_round(flashing)}, "
         f"{len(blackouts)} cuts through black {_round(blackouts)}"
