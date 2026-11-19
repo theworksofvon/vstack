@@ -119,7 +119,10 @@ def report(video: Path) -> tuple[dict, list[str]]:
     print(f"file      {video}")
     print(f"length    {length:.1f} s")
     print(f"cuts      {len(found)} hard cuts (a low estimate: slow fades do not count)")
-    print(f"sound     {loud} LUFS, {pauses} pauses, {quiet:.1f} s of pause")
+    share = quiet / length if length else 0
+    print(
+        f"sound     {loud} LUFS, {pauses} pauses, {quiet:.1f} s of pause, {share:.0%} of the length"
+    )
     print(
         f"flashes   {len(strobes)} strobes {[round(t, 1) for t in strobes]}, {len(dips)} cuts through black {[round(t, 1) for t in dips]}"
     )

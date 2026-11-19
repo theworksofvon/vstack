@@ -13,10 +13,16 @@ running `study` on a new link and reading its sheet.
 What the modes take from them:
 
 - `demo` follows Linear: the screen runs at real speed, the narrator
-  pauses, and the camera stays wide most of the time.
+  talks through it (pauses are 11% of the length), and the camera stays
+  wide most of the time.
 - `product` follows Retool: no pause in the sound, a new clip every few
   seconds, about 90 seconds in total.
 - Loudness of narrated demos sits near -18 LUFS.
+
+Measured on our own demo, 2026-11-19: a first cut with 1 short line per
+beat had 43 s of pause in 75 s (57%), and the user said the voice did not
+sound human. The same picture with spoken narration had 25 s in 80 s (31%),
+and the user accepted it.
 
 Not yet measured, so still guesses in the tool: the 1.2x to 1.4x focus
 zoom, the 0.6 s cursor glide, and the 3.4 s caption.
