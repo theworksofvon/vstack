@@ -8,6 +8,5 @@
   "repository": "https://github.com/theworksofvon/vstack",
   "license": "MIT",
   "keywords": ["vstack", "skills", "workflow", "claude-code", "codex", "opencode"],
-  "skills": "./skills/",
-  "agents": "./agents/"
+  "skills": "./skills/"
 }

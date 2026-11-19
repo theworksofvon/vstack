@@ -1,0 +1,82 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Self-test page</title>
+<style>
+  body {
+    font:
+      18px system-ui,
+      sans-serif;
+    margin: 0;
+    background: #f6f7f9;
+    color: #111;
+  }
+  main {
+    max-width: 900px;
+    margin: 80px auto;
+    background: #fff;
+    padding: 40px;
+    border-radius: 14px;
+  }
+  input {
+    font: inherit;
+    padding: 10px 12px;
+    width: 320px;
+    border: 1px solid #bbb;
+    border-radius: 8px;
+  }
+  button {
+    font: inherit;
+    padding: 10px 18px;
+    border: 0;
+    border-radius: 8px;
+    background: #2456d6;
+    color: #fff;
+  }
+  #count {
+    font-weight: 700;
+  }
+  /* The dialog sits on the body, outside <main>, as most app frameworks place it. */
+  #shade {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: none;
+    place-items: center;
+  }
+  #shade.open {
+    display: grid;
+  }
+  #shade [role="dialog"] {
+    background: #fff;
+    padding: 28px;
+    border-radius: 12px;
+    width: 380px;
+  }
+</style>
+<main>
+  <h1>Orders</h1>
+  <p><span id="count">0</span> orders confirmed</p>
+  <p>
+    <input id="name" placeholder="Order name" />
+    <button id="add">Confirm order</button>
+  </p>
+</main>
+<div id="shade">
+  <div role="dialog" aria-label="Confirm">
+    <h2>Confirm <span id="what"></span>?</h2>
+    <button id="yes">Confirm</button>
+  </div>
+</div>
+<script>
+  const shade = document.getElementById("shade");
+  document.getElementById("add").onclick = () => {
+    document.getElementById("what").textContent =
+      document.getElementById("name").value || "the order";
+    shade.classList.add("open");
+  };
+  document.getElementById("yes").onclick = () => {
+    shade.classList.remove("open");
+    const count = document.getElementById("count");
+    count.textContent = Number(count.textContent) + 1;
+  };
+</script>

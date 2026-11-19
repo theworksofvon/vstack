@@ -31,8 +31,31 @@ cd vstack && ./install.sh
 Re-run it after pulling a new skill; it is safe to run repeatedly. To add a
 harness, add its skills directory to the list at the top of the script.
 
-Claude Code can also load the repo as a plugin via `.claude-plugin/plugin.json`
-without cloning, but that path covers Claude Code only.
+### As a plugin, without cloning
+
+The repo is also a plugin marketplace. In Claude Code, or the desktop app's
+Code tab:
+
+```bash
+claude plugin marketplace add theworksofvon/vstack
+claude plugin install vstack@vstack        # every skill
+claude plugin install demo-video@vstack    # only demo-video
+```
+
+Pick one of the two: `vstack` already holds `demo-video`.
+
+### demo-video in Cowork and claude.ai
+
+Cowork installs the plugin from the same marketplace: Customize > Plugins >
+Add marketplace > `theworksofvon/vstack`. A Team or Enterprise owner can
+give it to everyone under Organization settings > Plugins & skills > Sync
+from GitHub, set to Installed by default.
+
+For claude.ai chat, `uv run skills/demo-video/scripts/demo.py package`
+writes `demo-video.zip`; upload it under Customize > Skills. There the agent
+drives your browser with Claude in Chrome while your screen recorder films,
+and the sandbox makes the video. An upload stops at 30 MB, so Cowork suits
+longer walk-throughs.
 
 ## Skills
 
@@ -50,6 +73,7 @@ without cloning, but that path covers Claude Code only.
 | `system-audit` | find drift on the machine: unpushed work, duplicate clones, toolchain mismatch. Assumes a Mac with Homebrew and repos under one source root; finds its own paths |
 | `writing-for-agents` | how to write documents an agent consumes |
 | `grilling` | stress-test a plan by relentless questioning |
+| `demo-video` | narrated demo video of an app, with spring zooms and captions, in a stock voice or your own cloned one. Records itself in Claude Code; in Cowork and claude.ai it films your screen and finishes the video in the sandbox |
 | `explain` | router: picks a format for "help me understand X" and hands off to one of the four below |
 | `explain-ste` | prose in ASD-STE100 Simplified Technical English, with a dial to relax it |
 | `explain-diagram` | Mermaid diagram, rendered to SVG or an HTML preview |

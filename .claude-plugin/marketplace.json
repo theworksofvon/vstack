@@ -1,0 +1,17 @@
+{
+  "name": "vstack",
+  "owner": { "name": "theworksofvon" },
+  "description": "Agent skills from the vstack repo.",
+  "plugins": [
+    {
+      "name": "vstack",
+      "source": "./",
+      "description": "Every vstack skill, demo-video included."
+    },
+    {
+      "name": "demo-video",
+      "source": "./skills/demo-video",
+      "description": "Make a narrated demo video of a web or desktop app: drawn cursor, click sounds, spring zooms, captions. Claude Code records a web app itself; Cowork and the desktop app film your screen while Claude drives the app."
+    }
+  ]
+}
