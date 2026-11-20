@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from check import sound as _sound
 from edit import narration
-from media import ffmpeg, seconds
+from media import ffmpeg, seconds, takes, untaken
 
 FPS = 30
 RATE = 48_000
@@ -324,9 +324,10 @@ def master(out: Path, joined: Path, final: Path) -> None:
 
 def build(out: Path, names: list[str] | None) -> Path:
     (out / "segments").mkdir(exist_ok=True)
-    every = sorted(
-        p.name for p in (out / "frames").iterdir() if (p / "manifest.json").exists()
-    )
+    every = takes(out)
+    missing = untaken(out)
+    if missing:
+        print(f"no take of {missing}: this build is a preview", flush=True)
     scenes = names or every
     cards = {name for name in scenes if load(out / "frames" / name).get("card")}
     parts = [
@@ -340,7 +341,7 @@ def build(out: Path, names: list[str] | None) -> Path:
     ]
     listing = out / "segments" / "list.txt"
     listing.write_text("".join(f"file '{part}'\n" for part in parts))
-    final = out / ("final.mp4" if scenes == every else "preview.mp4")
+    final = out / ("final.mp4" if scenes == every and not missing else "preview.mp4")
     joined = out / "segments" / "joined.mp4"
     run(
         [ffmpeg(), "-y", "-f", "concat", "-safe", "0", "-i", str(listing)]

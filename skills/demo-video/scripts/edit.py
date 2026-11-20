@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from media import seconds
+from media import seconds, takes
 
 WINDOW = 0.25
 ROOM = 0.8  # seconds of picture a scene keeps over its narration
@@ -170,9 +170,7 @@ def cut(m: dict, a: float, b: float) -> None:
 
 def edit(out: Path, mode: str) -> None:
     rules = MODES[mode]
-    for folder in sorted(
-        p for p in (out / "frames").iterdir() if (p / "manifest.json").exists()
-    ):
+    for folder in (out / "frames" / name for name in takes(out)):
         m = json.loads((folder / "manifest.json").read_text())
         if m.get("card"):
             (folder / "cut.json").unlink(missing_ok=True)

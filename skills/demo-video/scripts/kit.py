@@ -24,12 +24,18 @@ from playwright.sync_api import Locator, Page, sync_playwright
 
 HERE = Path(__file__).parent
 WIDTH, HEIGHT = 1600, 900
+# A session renewed this recently is still good: 5 min, a guess that covers
+# the start of every scene agent in 1 parallel round.
+FRESH = 300
 
 SCENES: dict[str, dict] = {}
 
 
 class Skip(Exception):
-    """Raised by a scene that cannot run; the frames it wrote are discarded."""
+    """Raised by a scene that cannot run; the frames it wrote are discarded.
+
+    An earlier take of the scene stays in `frames/NN`.
+    """
 
 
 def skip(reason: str) -> None:
@@ -69,6 +75,7 @@ class Recorder:
         self.cdp = page.context.new_cdp_session(page)
         self.cdp.on("Page.screencastFrame", self._frame)
         self.dir: Path | None = None
+        self.name = ""
         self.rate = 1.0
         self.clock = 0.0
         self.last: float | None = None
@@ -102,12 +109,13 @@ class Recorder:
         self.frames.append((name, self.clock))
 
     def start(self, name: str) -> None:
-        self.dir = self.out / "frames" / name
+        # A take records beside the last good one, and replaces it only in
+        # `stop`: a take that fails or skips leaves the good one in place.
+        self.name = name
+        self.dir = self.out / "frames" / f"{name}.take-{os.getpid()}"
         if self.dir.exists():
-            old = self.out / "frames-old" / f"{name}-{int(time.time())}"
-            old.parent.mkdir(parents=True, exist_ok=True)
-            self.dir.rename(old)
-        self.dir.mkdir(parents=True, exist_ok=True)
+            shutil.rmtree(self.dir)
+        self.dir.mkdir(parents=True)
         self._reset()
         self.clock, self.last, self.rate = 0.0, time.monotonic(), 1.0
         self.cdp.send(
@@ -138,28 +146,47 @@ class Recorder:
         self._advance()
         self.cdp.send("Page.stopScreencast")
         assert self.dir is not None
-        if keep:
-            (self.dir / "manifest.json").write_text(
-                json.dumps(
-                    {
-                        "frames": self.frames,
-                        "end": self.clock,
-                        "events": self.events,
-                        "camera": self.camera,
-                        "fast": self.fast,
-                        "caption": self.caption,
-                        "card": self.is_card,
-                        "size": [WIDTH, HEIGHT],
-                        "scale": self.scale,
-                    }
-                )
+        if not keep:
+            self.abandon()
+            return
+        (self.dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "frames": self.frames,
+                    "end": self.clock,
+                    "events": self.events,
+                    "camera": self.camera,
+                    "fast": self.fast,
+                    "caption": self.caption,
+                    "card": self.is_card,
+                    "size": [WIDTH, HEIGHT],
+                    "scale": self.scale,
+                }
             )
-            print(
-                f"{self.dir.name}: {len(self.frames)} frames, {self.clock:.1f} s, "
-                f"{len(self.events)} sounds, {len(self.camera)} camera moves",
-                flush=True,
-            )
+        )
+        print(
+            f"{self.name}: {len(self.frames)} frames, {self.clock:.1f} s, "
+            f"{len(self.events)} sounds, {len(self.camera)} camera moves",
+            flush=True,
+        )
+        good = self.out / "frames" / self.name
+        if good.exists():
+            old = self.out / "frames-old" / f"{self.name}-{int(time.time())}"
+            old.parent.mkdir(parents=True, exist_ok=True)
+            good.rename(old)
+        self.dir.rename(good)
         self.dir = None
+
+    def abandon(self) -> None:
+        """Drops the take that runs now; an earlier take of the scene stays."""
+        if self.dir is None:
+            return
+        with contextlib.suppress(Exception):  # the page can be gone already
+            self.cdp.send("Page.stopScreencast")
+        shutil.rmtree(self.dir)
+        self.dir = None
+        if (self.out / "frames" / self.name).exists():
+            print(f"{self.name}: kept the earlier take", flush=True)
 
 
 class Demo:
@@ -406,8 +433,12 @@ def _run_card(d: Demo, name: str, spec: dict) -> None:
     d.page.wait_for_timeout(400)
     d.rec.start(name)
     d.rec.is_card = True
-    d.page.evaluate("document.body.classList.add('go')")
-    d.page.wait_for_timeout(int(spec["seconds"] * 1000))
+    try:
+        d.page.evaluate("document.body.classList.add('go')")
+        d.page.wait_for_timeout(int(spec["seconds"] * 1000))
+    except BaseException:
+        d.rec.abandon()
+        raise
     d.rec.stop()
 
 
@@ -419,9 +450,12 @@ def _run_scene(d: Demo, name: str, spec: dict, number: int) -> None:
     try:
         spec["run"](d)
     except Skip as reason:
-        d.rec.stop(keep=False)
         print(f"{name}: skipped, {reason}", flush=True)
+        d.rec.stop(keep=False)
         return
+    except BaseException:
+        d.rec.abandon()
+        raise
     d.wide(0.7)
     d.wait(0.9)
     d.rec.stop()
@@ -463,6 +497,7 @@ def record(
     missing = [n for n in names if n not in scenes]
     if missing:
         sys.exit(f"no scene named {missing}; scenes.py has {sorted(scenes)}")
+    (out / "scenes.json").write_text(json.dumps(sorted(scenes)))
     refresh(out)
     state = out / "state.json"
     numbers = {
@@ -498,9 +533,7 @@ def record(
             # Per scene too: 2 recordings at the same time share last.png.
             shutil.copy(out / "shots" / "last.png", out / "shots" / f"{names[-1]}.png")
             if state.exists():
-                fresh = state.with_name(f"state.{os.getpid()}.json")
-                context.storage_state(path=str(fresh))
-                fresh.replace(state)
+                _save(context, state)
             browser.close()
 
 
@@ -558,7 +591,7 @@ def login(out: Path, url: str, minutes: int = 20) -> None:
                 seen = where
             if any(_in_app(u, url) for u in urls):
                 time.sleep(2)
-                context.storage_state(path=str(out / "state.json"))
+                _save(context, out / "state.json")
                 print("signed in:", out / "state.json", flush=True)
                 context.close()
                 return
@@ -568,12 +601,47 @@ def login(out: Path, url: str, minutes: int = 20) -> None:
 
 
 def refresh(out: Path) -> None:
-    """Renews the session before a recording, without a window, when it can."""
+    """Renews the session before a recording, without a window, when it can.
+
+    Scene agents record at the same time and share 1 profile per app, which
+    only 1 browser can open. So they take turns, and an agent skips the
+    renewal when another one renewed the session in the last FRESH seconds.
+    """
     saved = out / "login.txt"
-    if saved.exists() and not _silent(out, saved.read_text().strip()):
-        print(
-            "the saved sign-in ran out: run `demo login` to sign in again", flush=True
-        )
+    if not saved.exists():
+        return
+    url = saved.read_text().strip()
+    state = out / "state.json"
+    with _turn(_profile(url)):
+        if state.exists() and time.time() - state.stat().st_mtime < FRESH:
+            return
+        if not _silent(out, url):
+            print(
+                "the saved sign-in ran out: run `demo login` to sign in again",
+                flush=True,
+            )
+
+
+@contextlib.contextmanager
+def _turn(profile: Path):
+    """Holds the profile's lock file until the block ends."""
+    try:
+        import fcntl
+    except ImportError:  # Windows: no lock, as before
+        yield
+        return
+    profile.parent.mkdir(parents=True, exist_ok=True)
+    with (profile.parent / f"{profile.name}.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def _save(context, state: Path) -> None:
+    """Writes the session in 1 step, so a recording that reads it at the same
+    time never gets half a file."""
+    fresh = state.with_name(f"state.{os.getpid()}.json")
+    context.storage_state(path=str(fresh))
+    fresh.replace(state)
 
 
 def _profile(url: str) -> Path:
@@ -605,7 +673,7 @@ def _silent(out: Path, url: str) -> bool:
             page.goto(url, wait_until="networkidle", timeout=45_000)
             inside = _in_app(page.url, url)
             if inside:
-                context.storage_state(path=str(out / "state.json"))
+                _save(context, out / "state.json")
             context.close()
             return inside
     except Exception as error:  # a profile in use by another recording, a timeout
