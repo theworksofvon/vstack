@@ -67,6 +67,9 @@ def finish(out: Path, video: Path, offset: float | None = None) -> None:
     scenes = [m for m in marks if m["scene"] != "start"] or [
         {"scene": "01", "caption": None, "t": start}
     ]
+    (out / "scenes.json").write_text(
+        json.dumps(list(dict.fromkeys(m["scene"] for m in scenes)))
+    )
     cuts = [0.0] + [_snap(m["t"] - start, gaps) for m in scenes[1:]] + [length]
     for index, entry in enumerate(scenes):
         a, b = cuts[index], cuts[index + 1]
