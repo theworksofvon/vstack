@@ -13,27 +13,17 @@ import json
 from pathlib import Path
 
 import numpy as np
-from media import seconds, takes
+from media import seconds
 from PIL import Image
+from work import ROOM, narration, takes
 
 WINDOW = 0.25
-ROOM = 0.8  # seconds of picture a scene keeps over its narration
 
 # demo: real speed, only the dead time goes. product: as short as the narration allows.
 MODES = {
     "demo": {"pace": (1.0, 1.0), "typing": 2.0, "idle": 4.0, "trim_fast": False},
     "product": {"pace": (1.0, 2.6), "typing": 3.0, "idle": 8.0, "trim_fast": True},
 }
-
-
-def narration(out: Path, scene: str) -> Path | None:
-    """The newest sound file of the scene: an older take from another narrator loses."""
-    found = [
-        p
-        for p in (out / "narration").glob(f"{scene}.*")
-        if p.suffix in {".wav", ".aiff", ".mp3", ".m4a"}
-    ]
-    return max(found, key=lambda p: p.stat().st_mtime, default=None)
 
 
 def _cached(path: Path, names: list[str], measure) -> dict:

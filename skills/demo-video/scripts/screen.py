@@ -16,15 +16,14 @@ writes. `edit`, `build` and `check` then run as usual.
 import json
 import re
 import shutil
-import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from edit import ROOM, narration
-from media import ffmpeg, retire, seconds
+from media import log, pts, seconds
 from PIL import Image
+from work import ROOM, narration, retire
 
 FPS = 30
 WIDTH = (
@@ -104,23 +103,20 @@ def _extract(video: Path, raw: Path) -> list[tuple[str, float]]:
         shutil.rmtree(raw)
     raw.mkdir(parents=True)
     size = WIDTH * SHARP
-    log = subprocess.run(
-        [ffmpeg(), "-hide_banner", "-i", str(video), "-an", "-vf"]
-        + [
-            # 16:9 from the middle, then 1 size for every recording.
-            "crop='min(iw,ih*16/9)':'min(ih,iw*9/16)',"
-            f"scale={size}:{size * 9 // 16}:flags=lanczos,fps={FPS},"
-            "mpdecimate=hi=768:lo=320:frac=0.1,showinfo"
-        ]
-        + ["-fps_mode", "vfr", "-q:v", "3", str(raw / "%06d.jpg")],
-        capture_output=True,
-        text=True,
-    ).stderr
-    stamps = [float(t) for t in re.findall(r"pts_time:([\d.]+)", log)]
+    # 16:9 from the middle, then 1 size for every recording.
+    frames = (
+        "crop='min(iw,ih*16/9)':'min(ih,iw*9/16)',"
+        f"scale={size}:{size * 9 // 16}:flags=lanczos,fps={FPS},"
+        "mpdecimate=hi=768:lo=320:frac=0.1,showinfo"
+    )
+    printed = log(
+        *("-i", str(video), "-an", "-vf", frames),
+        *("-fps_mode", "vfr", "-q:v", "3", str(raw / "%06d.jpg")),
+    )
     names = sorted(p.name for p in raw.glob("*.jpg"))
     if not names:
-        raise SystemExit(f"no frames from {video}:\n{log[-1500:]}")
-    times = list(zip(names, stamps))
+        raise SystemExit(f"no frames from {video}:\n{printed[-1500:]}")
+    times = list(zip(names, pts(printed)))
     listing.write_text(json.dumps({"source": source, "frames": times}))
     return times
 
@@ -164,10 +160,9 @@ def _start(
     if offset is not None:
         return (marks[0]["t"] if marks else 0.0) - offset
     started = next((m["t"] for m in marks if m["scene"] == "start"), None)
-    log = subprocess.run(
-        [ffmpeg(), "-hide_banner", "-i", str(video)], capture_output=True, text=True
-    ).stderr
-    stamp = re.search(r"creation_?date\s*:\s*(\S+)|creation_time\s*:\s*(\S+)", log)
+    stamp = re.search(
+        r"creation_?date\s*:\s*(\S+)|creation_time\s*:\s*(\S+)", log("-i", str(video))
+    )
     if stamp:
         made = datetime.fromisoformat(
             (stamp.group(1) or stamp.group(2)).replace("Z", "+00:00")

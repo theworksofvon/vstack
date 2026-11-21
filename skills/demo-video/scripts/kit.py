@@ -20,8 +20,8 @@ import sys
 import time
 from pathlib import Path
 
-from media import retire
 from playwright.sync_api import Locator, Page, sync_playwright
+from work import profile, retire
 
 HERE = Path(__file__).parent
 WIDTH, HEIGHT = 1600, 900
@@ -557,7 +557,7 @@ def login(out: Path, url: str, minutes: int = 20) -> None:
     runs without a window, and asks the user only when that fails.
     """
     (out / "login.txt").write_text(url)
-    with _turn(_profile(url)):
+    with _turn(profile(url)):
         if _silent(out, url):
             print("signed in without a window:", out / "state.json", flush=True)
             return
@@ -569,7 +569,7 @@ def _window(out: Path, url: str, minutes: int) -> None:
     with sync_playwright() as p:
         context = _launch(
             p.chromium.launch_persistent_context,
-            str(_profile(url)),
+            str(profile(url)),
             channel="chromium",
             headless=False,
             viewport={"width": 1100, "height": 800},
@@ -632,7 +632,7 @@ def refresh(out: Path) -> None:
         return
     url = saved.read_text().strip()
     renewed = out / "renewed"
-    with _turn(_profile(url)):
+    with _turn(profile(url)):
         if renewed.exists() and time.time() - renewed.stat().st_mtime < FRESH:
             return
         if not _silent(out, url):
@@ -666,13 +666,6 @@ def _renew(context, out: Path) -> None:
     (out / "renewed").touch()
 
 
-def _profile(url: str) -> Path:
-    """The browser profile of 1 app, shared by every demo of it."""
-    host = url.split("/")[2].replace(":", "-")
-    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-    return cache / "vstack" / "demo-video" / "profiles" / host
-
-
 def _in_app(page_url: str, url: str) -> bool:
     origin = "/".join(url.split("/")[:3])
     path = page_url[len(origin) :].split("?")[0]
@@ -687,7 +680,7 @@ def _silent(out: Path, url: str) -> bool:
         with sync_playwright() as p:
             context = _launch(
                 p.chromium.launch_persistent_context,
-                str(_profile(url)),
+                str(profile(url)),
                 channel="chromium",
                 headless=True,
             )

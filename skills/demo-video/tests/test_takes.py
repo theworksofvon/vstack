@@ -1,6 +1,6 @@
 import json
 
-from media import takes, untaken
+from work import takes, untaken
 
 
 def take(out, name):

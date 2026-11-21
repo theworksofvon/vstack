@@ -5,38 +5,24 @@ that moves, the caption is drawn on top, and the click and key sounds are
 mixed under the narration.
 """
 
-import json
-import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-from check import sound as _sound
-from edit import narration
-from media import concat, ffmpeg, seconds, takes, untaken
+from media import LOUDNESS, concat, ffmpeg, run, seconds, sound
 from PIL import Image, ImageDraw, ImageFont
+from work import manifest as load
+from work import narration, takes, untaken
 
 FPS = 30
 RATE = 48_000
 LEAD = 0.3  # silence before the narration of a scene
 TAIL = 0.5  # the least picture after the narration ends
-LOUDNESS = -18  # LUFS: the level of the narrated demos in REFERENCE.md
 MUSIC = 0.16  # the music level under the voice, as a part of full level: a first guess
 FONTS = [
     ("/System/Library/Fonts/Helvetica.ttc", 1),
     ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 0),
 ]
-
-
-def sound_level(video: Path) -> float | None:
-    return _sound(video)[0]
-
-
-def run(cmd: list[str]) -> None:
-    done = subprocess.run(cmd, capture_output=True, text=True)
-    if done.returncode:
-        sys.exit(f"{' '.join(cmd[:8])} ...\n{done.stderr[-2500:]}")
 
 
 def font(size: int):
@@ -178,11 +164,6 @@ def sound_track(path: Path, seed: int, events: list[dict], total: float) -> Path
 # --- scenes ---
 
 
-def load(folder: Path) -> dict:
-    cut = folder / "cut.json"
-    return json.loads((cut if cut.exists() else folder / "manifest.json").read_text())
-
-
 def segment(out: Path, scene: str, after_card: bool, before_card: bool) -> Path:
     frames, parts = out / "frames" / scene, out / "segments"
     manifest = load(frames)
@@ -237,7 +218,7 @@ def segment(out: Path, scene: str, after_card: bool, before_card: bool) -> Path:
         )
     else:
         video += f"{edges}[v]"
-    sound = (
+    audio = (
         f"[1:a]aresample={RATE},adelay={int(LEAD * 1000)}:all=1,apad=whole_dur={total:.3f}[voice];"
         "[voice][2:a]amix=inputs=2:normalize=0:duration=first[a]"
     )
@@ -248,7 +229,7 @@ def segment(out: Path, scene: str, after_card: bool, before_card: bool) -> Path:
             "-y",
             *inputs,
             "-filter_complex",
-            f"{video};{sound}",
+            f"{video};{audio}",
             "-map",
             "[v]",
             "-map",
@@ -291,7 +272,7 @@ def master(out: Path, joined: Path, final: Path) -> None:
     if music:
         length = seconds(joined)
         # The voice pushes the music down while it speaks; the music fades out at the end.
-        sound = (
+        mix = (
             f"[1:a]aresample={RATE},volume={MUSIC},afade=t=in:d=1.5,"
             f"afade=t=out:st={length - 2:.2f}:d=2[bed];"
             "[0:a]asplit[voice][key];"
@@ -301,12 +282,12 @@ def master(out: Path, joined: Path, final: Path) -> None:
         mixed = joined.with_name("mixed.mp4")
         run(
             [ffmpeg(), "-y", "-i", str(joined), "-stream_loop", "-1", "-i", str(music)]
-            + ["-filter_complex", sound, "-map", "0:v", "-map", "[a]", *encode]
+            + ["-filter_complex", mix, "-map", "0:v", "-map", "[a]", *encode]
             + ["-t", f"{length:.3f}", str(mixed)]
         )
         joined = mixed
     # Measure, then 1 fixed gain: a short clip with long pauses misleads a 1-pass leveller.
-    measured = sound_level(joined)
+    measured = sound(joined)[0]
     gain = 0.0 if measured is None else LOUDNESS - measured
     run(
         [

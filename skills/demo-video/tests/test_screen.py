@@ -3,7 +3,7 @@ import json
 import pytest
 import screen
 from conftest import marks
-from media import untaken
+from work import untaken
 
 
 @pytest.fixture

@@ -35,11 +35,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from work import ROOT, folder
+
 HERE = Path(__file__).parent
-ROOT = (
-    Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-    / "vstack/demo-video"
-)
 
 TEMPLATE = '''"""The scenes of this demo. Run: demo.py record <slug>"""
 from kit import card, scene, skip
@@ -59,11 +57,6 @@ def first(d):
     d.type("Example")
     d.wait(1.0)
 '''
-
-
-def folder(slug: str) -> Path:
-    path = Path(slug).expanduser() if "/" in slug else ROOT / slug
-    return path.resolve()
 
 
 def init(out: Path) -> None:
