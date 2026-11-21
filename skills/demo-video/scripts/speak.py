@@ -8,18 +8,15 @@
   speak.py <folder> --voice V --speed N     each NN.txt -> NN.wav
   speak.py --samples <folder> --text "..."  1 file per voice, to compare them
 
-In a narration text, `[pause 0.8]` is 0.8 s of silence and an empty line is
-0.5 s. `<folder>/pronounce.json` maps a word to how to say it, for example
-{"MI": "M I", "Duchess": "Dutchess"}.
+The narration text rules are in script.py.
 """
 
 import argparse
 from pathlib import Path
 
-import numpy as np
 import soundfile as sf
 from kokoro import KPipeline
-from script import parts, words
+from script import Voice, narrate, render
 
 RATE = 24_000
 
@@ -49,14 +46,11 @@ def pipe(voice: str) -> KPipeline:
     return _pipes[code]
 
 
-def speak(text: str, voice: str, speed: float, said: dict[str, str]) -> np.ndarray:
-    audio = []
-    for part in parts(text, said):
-        if isinstance(part, float):
-            audio.append(np.zeros(int(RATE * part), dtype=np.float32))
-        else:
-            audio += [a for _, _, a in pipe(voice)(part, voice=voice, speed=speed)]
-    return np.concatenate([np.asarray(a, dtype=np.float32) for a in audio])
+def kokoro(voice: str, speed: float) -> Voice:
+    def say(line: str):
+        return (audio for _, _, audio in pipe(voice)(line, voice=voice, speed=speed))
+
+    return say
 
 
 def main() -> None:
@@ -76,14 +70,10 @@ def main() -> None:
     if args.samples:
         for voice, (who, character) in VOICES.items():
             path = args.folder / f"{voice}.wav"
-            sf.write(path, speak(args.text, voice, args.speed, {}), RATE)
+            sf.write(path, render(args.text, {}, RATE, kokoro(voice, args.speed)), RATE)
             print(f"{path}  {who}, {character}")
         return
-    said = words(args.folder)
-    for text in sorted(args.folder.glob("*.txt")):
-        audio = speak(text.read_text(), args.voice, args.speed, said)
-        sf.write(text.with_suffix(".wav"), audio, RATE)
-        print(f"{text.with_suffix('.wav')}  {len(audio) / RATE:.1f} s")
+    narrate(args.folder, RATE, kokoro(args.voice, args.speed))
 
 
 if __name__ == "__main__":

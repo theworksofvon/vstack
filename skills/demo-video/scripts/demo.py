@@ -33,13 +33,21 @@ import os
 import shutil
 import subprocess
 import sys
+from importlib import import_module
 from pathlib import Path
 
+from work import ROOT, folder
+
 HERE = Path(__file__).parent
-ROOT = (
-    Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-    / "vstack/demo-video"
-)
+# claude.ai rejects a SKILL.md whose frontmatter has a key outside this set.
+PORTABLE = {
+    "name",
+    "description",
+    "license",
+    "compatibility",
+    "metadata",
+    "allowed-tools",
+}
 
 TEMPLATE = '''"""The scenes of this demo. Run: demo.py record <slug>"""
 from kit import card, scene, skip
@@ -61,11 +69,6 @@ def first(d):
 '''
 
 
-def folder(slug: str) -> Path:
-    path = Path(slug).expanduser() if "/" in slug else ROOT / slug
-    return path.resolve()
-
-
 def init(out: Path) -> None:
     (out / "narration").mkdir(parents=True, exist_ok=True)
     scenes = out / "scenes.py"
@@ -76,14 +79,28 @@ def init(out: Path) -> None:
 
 def speak(*args: str) -> bool:
     """Runs Kokoro: with uv when there is one, else with this Python and pip."""
-    if shutil.which("uv"):
-        run = ["uv", "run", "--quiet", str(HERE / "speak.py")]
-    else:
+    command = _in_uv("speak.py")
+    if not command:
+        # A failed install shows in the run below, which then returns False.
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-q", "kokoro>=0.9", "soundfile"]
+            [sys.executable, "-m", "pip", "install", "-q", "kokoro>=0.9", "soundfile"],
+            check=False,
         )
-        run = [sys.executable, str(HERE / "speak.py")]
-    return subprocess.run([*run, *args]).returncode == 0
+        command = [sys.executable, str(HERE / "speak.py")]
+    return subprocess.run([*command, *args], check=False).returncode == 0
+
+
+def _uv(script: str, *args: str) -> int:
+    """Runs a script of this folder in its own uv environment; its exit code."""
+    command = _in_uv(script)
+    if not command:
+        sys.exit(f"{script} runs with uv, and this machine has none: see setup.md")
+    return subprocess.run([*command, *args], check=False).returncode
+
+
+def _in_uv(script: str) -> list[str] | None:
+    """The command that runs `script` in its own uv environment, or None without uv."""
+    return ["uv", "run", "--quiet", str(HERE / script)] if shutil.which("uv") else None
 
 
 def narrate(out: Path, speed: float, voice: str) -> None:
@@ -92,17 +109,7 @@ def narrate(out: Path, speed: float, voice: str) -> None:
     if not texts:
         sys.exit(f"no narration/NN.txt in {out}")
     if voice == "me":
-        done = subprocess.run(
-            [
-                "uv",
-                "run",
-                "--quiet",
-                str(HERE / "clone.py"),
-                "speak",
-                str(out / "narration"),
-            ]
-        )
-        if done.returncode:
+        if _uv("clone.py", "speak", str(out / "narration")):
             sys.exit("the voice clone did not run: see the error above")
         print("narrator: your voice, Qwen3-TTS clone")
         return
@@ -122,7 +129,6 @@ def narrate(out: Path, speed: float, voice: str) -> None:
 
 def clone(recording: str | None, text: str | None) -> None:
     """Saves the user's voice sample: a file, or 15 s from the microphone now."""
-    sys.path.insert(0, str(HERE))
     from clone import PASSAGE
 
     if not recording:
@@ -130,22 +136,19 @@ def clone(recording: str | None, text: str | None) -> None:
             f"give a recording, or `record` to use the microphone. Read this:\n{PASSAGE}"
         )
     if recording == "record":
-        from media import ffmpeg
+        from media import ffmpeg, run
 
         recording = str(ROOT / "voice-take.wav")
         print(f"recording 15 s. Read this aloud now:\n\n  {PASSAGE}\n", flush=True)
-        subprocess.run(
+        run(
             [ffmpeg(), "-v", "error", "-y", "-f", "avfoundation", "-i", ":0"]
-            + ["-t", "15", recording],
-            check=True,
+            + ["-t", "15", recording]
         )
         text = PASSAGE
     extra = ["--text", text] if text else []
-    done = subprocess.run(
-        ["uv", "run", "--quiet", str(HERE / "clone.py"), "keep", recording, *extra]
-    )
-    if done.returncode:
-        sys.exit(done.returncode)
+    code = _uv("clone.py", "keep", recording, *extra)
+    if code:
+        sys.exit(code)
 
 
 def voices(text: str | None) -> None:
@@ -200,7 +203,7 @@ def doctor(url: str | None) -> None:
 
         with sync_playwright() as p:
             path = Path(p.chromium.executable_path)
-        browser = line(
+        line(
             "chromium",
             path.exists(),
             str(path)
@@ -208,7 +211,7 @@ def doctor(url: str | None) -> None:
             else "not downloaded: the first `record` does it",
         )
         browser = True  # `record` downloads it, about 150 MB
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - any failure here is a "no" line
         browser = line("chromium", False, f"playwright did not load: {error}")
     reach = True
     if url:
@@ -217,7 +220,7 @@ def doctor(url: str | None) -> None:
                 line("app", True, f"{url} answered {answer.status}")
         except urllib.error.HTTPError as error:
             line("app", True, f"{url} answered {error.code}: sign in with `login`")
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - any failure here is a "no" line
             reach = line("app", False, f"{url} did not answer: {error}")
     uv = shutil.which("uv")
     line(
@@ -245,17 +248,6 @@ def doctor(url: str | None) -> None:
         print("path: record")
     else:
         sys.exit("path: record, once the app answers: start it")
-
-
-# claude.ai rejects a SKILL.md whose frontmatter has a key outside this set.
-PORTABLE = {
-    "name",
-    "description",
-    "license",
-    "compatibility",
-    "metadata",
-    "allowed-tools",
-}
 
 
 def overlay() -> None:
@@ -291,117 +283,97 @@ def package(target: str | None) -> None:
     print(zipped, f"{zipped.stat().st_size / 1024:.0f} KB")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument(
-        "command",
-        choices=[
-            "init",
-            "login",
-            "narrate",
-            "voices",
-            "clone",
-            "record",
-            "edit",
-            "build",
-            "check",
-            "study",
-            "selftest",
-            "doctor",
-            "package",
-            "mark",
-            "finish",
-            "overlay",
-        ],
-    )
-    parser.add_argument("slug", nargs="?")
-    parser.add_argument("extra", nargs="?")
-    parser.add_argument("more", nargs="?")
-    parser.add_argument(
-        "--offset",
-        type=float,
-        help="finish: seconds into the recording at which the first mark falls",
-    )
-    parser.add_argument("--mode", choices=["demo", "product"], default="demo")
-    parser.add_argument("--speed", type=float, default=1.0, help="narration speed")
-    parser.add_argument(
-        "--voice",
-        default="af_heart",
-        help="a voice name from `demo.py voices`, or `me` after `demo.py clone`",
-    )
-    parser.add_argument(
-        "--scale",
-        type=int,
-        default=2,
-        help="device pixels per page pixel: 2 allows 1.67x zoom, 3 allows 2.5x",
-    )
-    parser.add_argument(
-        "--headed", action="store_true", help="show the browser while it records"
-    )
-    args = parser.parse_args()
+def _call(module: str, function: str, *args, **kwargs) -> None:
+    """Imports a step only when it runs: doctor and narrate work without Playwright."""
+    getattr(import_module(module), function)(*args, **kwargs)
 
-    if args.command == "selftest":
-        return selftest()
-    if args.command == "doctor":
-        return doctor(args.slug)
-    if args.command == "overlay":
-        return overlay()
-    if args.command == "package":
-        return package(args.slug)
-    if args.command == "clone":
-        return clone(args.slug, args.extra)
-    if args.command == "voices":
-        return voices(args.slug)
+
+def _slug(args: argparse.Namespace) -> str:
     if not args.slug:
-        parser.error(f"{args.command} needs a slug, a url or a file")
-    if args.command == "study":
-        import check
+        PARSER.error(f"{args.command} needs a slug, a url or a file")
+    return args.slug
 
-        return check.study(args.slug, ROOT / "study")
-    out = folder(args.slug)
-    if args.command == "init":
-        return init(out)
-    if not out.exists():
+
+def _out(args: argparse.Namespace, made: bool = True) -> Path:
+    """The work folder that the slug names; `made`: it must exist already."""
+    out = folder(_slug(args))
+    if made and not out.exists():
         sys.exit(f"{out} does not exist: run `demo.py init {args.slug}` first")
-    names = args.extra.split(",") if args.extra else None
-    if args.command == "login":
-        if not args.extra:
-            parser.error("login needs the url of the app")
-        import kit
+    return out
 
-        kit.login(out, args.extra)
-    elif args.command == "mark":
-        import screen
 
-        if not args.extra:
-            parser.error("mark needs a scene number, or `start`")
-        screen.mark(out, args.extra, args.more)
-    elif args.command == "finish":
-        import screen
+def _extra(args: argparse.Namespace, what: str) -> str:
+    if not args.extra:
+        PARSER.error(f"{args.command} needs {what}")
+    return args.extra
 
-        if not args.extra:
-            parser.error("finish needs the path of the screen recording")
-        screen.finish(out, Path(args.extra).expanduser(), args.offset)
-    elif args.command == "narrate":
-        narrate(out, args.speed, args.voice)
-    elif args.command == "record":
-        import kit
 
-        kit.record(out, names, scale=args.scale, headed=args.headed)
-    elif args.command == "edit":
-        import edit
+def _names(args: argparse.Namespace) -> list[str] | None:
+    return args.extra.split(",") if args.extra else None
 
-        edit.edit(out, args.mode)
-    elif args.command == "build":
-        import build
 
-        build.build(out, names)
-    elif args.command == "check":
-        import check
+COMMANDS = {
+    "init": lambda a: init(_out(a, made=False)),
+    "login": lambda a: _call("kit", "login", _out(a), _extra(a, "the url of the app")),
+    "narrate": lambda a: narrate(_out(a), a.speed, a.voice),
+    "voices": lambda a: voices(a.slug),
+    "clone": lambda a: clone(a.slug, a.extra),
+    "record": lambda a: _call(
+        "kit", "record", _out(a), _names(a), scale=a.scale, headed=a.headed
+    ),
+    "edit": lambda a: _call("edit", "edit", _out(a), a.mode),
+    "build": lambda a: _call("build", "build", _out(a), _names(a)),
+    "check": lambda a: _call("check", "check", _out(a)),
+    "study": lambda a: _call("check", "study", _slug(a), ROOT / "study"),
+    "selftest": lambda a: selftest(),
+    "doctor": lambda a: doctor(a.slug),
+    "package": lambda a: package(a.slug),
+    "mark": lambda a: _call(
+        "screen", "mark", _out(a), _extra(a, "a scene number, or `start`"), a.more
+    ),
+    "finish": lambda a: _call(
+        "screen",
+        "finish",
+        _out(a),
+        Path(_extra(a, "the path of the screen recording")).expanduser(),
+        a.offset,
+    ),
+    "overlay": lambda a: overlay(),
+}
 
-        check.check(out)
+PARSER = argparse.ArgumentParser(
+    description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+)
+PARSER.add_argument("command", choices=list(COMMANDS))
+PARSER.add_argument("slug", nargs="?")
+PARSER.add_argument("extra", nargs="?")
+PARSER.add_argument("more", nargs="?")
+PARSER.add_argument(
+    "--offset",
+    type=float,
+    help="finish: seconds into the recording at which the first mark falls",
+)
+PARSER.add_argument("--mode", choices=["demo", "product"], default="demo")
+PARSER.add_argument("--speed", type=float, default=1.0, help="narration speed")
+PARSER.add_argument(
+    "--voice",
+    default="af_heart",
+    help="a voice name from `demo.py voices`, or `me` after `demo.py clone`",
+)
+PARSER.add_argument(
+    "--scale",
+    type=int,
+    default=2,
+    help="device pixels per page pixel: 2 allows 1.67x zoom, 3 allows 2.5x",
+)
+PARSER.add_argument(
+    "--headed", action="store_true", help="show the browser while it records"
+)
+
+
+def main() -> None:
+    args = PARSER.parse_args()
+    COMMANDS[args.command](args)
 
 
 if __name__ == "__main__":

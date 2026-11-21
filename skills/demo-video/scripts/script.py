@@ -7,9 +7,36 @@ example {"MI": "M I", "Duchess": "Dutchess"}.
 
 import json
 import re
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
+import numpy as np
+import soundfile as sf
+
 PAUSE = re.compile(r"\[pause\s+([\d.]+)\]|\n\s*\n")
+
+
+Voice = Callable[[str], Iterable]  # 1 line of text -> its audio, in chunks
+
+
+def narrate(folder: Path, rate: int, voice: Voice) -> None:
+    """Reads each NN.txt of `folder` to NN.wav."""
+    said = words(folder)
+    for text in sorted(folder.glob("*.txt")):
+        audio = render(text.read_text(), said, rate, voice)
+        sf.write(text.with_suffix(".wav"), audio, rate)
+        print(f"{text.with_suffix('.wav')}  {len(audio) / rate:.1f} s", flush=True)
+
+
+def render(text: str, said: dict[str, str], rate: int, voice: Voice) -> np.ndarray:
+    """The audio of 1 narration text: each line spoken, each pause silent."""
+    audio = []
+    for part in parts(text, said):
+        if isinstance(part, float):
+            audio.append(np.zeros(int(rate * part), dtype=np.float32))
+        else:
+            audio += [np.asarray(chunk, dtype=np.float32) for chunk in voice(part)]
+    return np.concatenate(audio)
 
 
 def words(folder: Path) -> dict[str, str]:

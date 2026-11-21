@@ -5,23 +5,22 @@ that moves, the caption is drawn on top, and the click and key sounds are
 mixed under the narration.
 """
 
-import json
-import subprocess
-import sys
 from pathlib import Path
 
+import camera
 import numpy as np
 import soundfile as sf
-from check import sound as _sound
-from edit import narration
-from media import concat, ffmpeg, seconds, takes, untaken
+from media import LOUDNESS, concat, ffmpeg, run, seconds, sound
 from PIL import Image, ImageDraw, ImageFont
+from work import Take, manifest, narration, takes, untaken
 
 FPS = 30
 RATE = 48_000
 LEAD = 0.3  # silence before the narration of a scene
 TAIL = 0.5  # the least picture after the narration ends
-LOUDNESS = -18  # LUFS: the level of the narrated demos in REFERENCE.md
+FADE = 0.5  # seconds of the fade into and out of a title card
+PAD = 0.5  # seconds of held last frame past the segment's end, cut off by -t
+SHORTEST = 0.001  # seconds: ffmpeg shows a frame with no duration not at all
 MUSIC = 0.16  # the music level under the voice, as a part of full level: a first guess
 FONTS = [
     ("/System/Library/Fonts/Helvetica.ttc", 1),
@@ -29,79 +28,11 @@ FONTS = [
 ]
 
 
-def sound_level(video: Path) -> float | None:
-    return _sound(video)[0]
-
-
-def run(cmd: list[str]) -> None:
-    done = subprocess.run(cmd, capture_output=True, text=True)
-    if done.returncode:
-        sys.exit(f"{' '.join(cmd[:8])} ...\n{done.stderr[-2500:]}")
-
-
 def font(size: int):
     for path, index in FONTS:
         if Path(path).exists():
             return ImageFont.truetype(path, size, index=index)
     return ImageFont.load_default(size)
-
-
-# --- camera ---
-
-
-# The camera is a spring: it starts slowly, arrives with a soft tail, and when a
-# new target comes mid-move it bends towards it with no jerk. A spring is linear,
-# so its path through many targets is the sum of 1 step response per change.
-SETTLE = 5.0  # stiffness x seconds: the spring is 96% of the way after a note's `d`
-BOUNCE = 0.8  # damping of a zoom-in: below 1 it passes the target by 1.5%, then returns
-
-
-def spring(at: float, length: float, change: float, damping: float) -> str:
-    """An ffmpeg term: the move of a spring that starts at `at` towards `change`."""
-    w = SETTLE / max(length, 0.05)
-    t = f"st(0,max(it-{at:.3f},0))"
-    if damping >= 1:
-        return f"{change:.4f}*({t}*0+1-(1+{w:.4f}*ld(0))*exp(-{w:.4f}*ld(0)))"
-    wd = w * (1 - damping**2) ** 0.5
-    ratio = damping / (1 - damping**2) ** 0.5
-    return (
-        f"{change:.4f}*({t}*0+1-exp(-{damping * w:.4f}*ld(0))"
-        f"*(cos({wd:.4f}*ld(0))+{ratio:.4f}*sin({wd:.4f}*ld(0))))"
-    )
-
-
-def eased(
-    start: float, moves: list[tuple[float, float, float]], bounce: bool = False
-) -> str:
-    """An ffmpeg expression: `start`, plus 1 spring per (time, seconds, change)."""
-    terms = [f"{start:.3f}"]
-    for at, length, change in moves:
-        if abs(change) < 1e-6:
-            continue
-        damping = BOUNCE if bounce and change > 0 else 1.0
-        terms.append(spring(at, length, change, damping))
-    return "+".join(terms)
-
-
-def camera_filter(manifest: dict) -> str:
-    keys = manifest.get("camera") or []
-    if not keys:
-        return "scale=1920:1080:flags=lanczos"
-    width, height = manifest["size"]
-    scale = manifest.get("scale", 2)  # device pixels per page pixel
-    at = {"cx": width / 2, "cy": height / 2, "z": 1.0}
-    moves: dict[str, list[tuple[float, float, float]]] = {"cx": [], "cy": [], "z": []}
-    for key in keys:
-        for name in moves:
-            moves[name].append((key["t"], key["d"], key[name] - at[name]))
-            at[name] = key[name]
-    zoom = f"max(1,{eased(1.0, moves['z'], bounce=True)})"
-    cx = eased(width / 2 * scale, [(t, d, c * scale) for t, d, c in moves["cx"]])
-    cy = eased(height / 2 * scale, [(t, d, c * scale) for t, d, c in moves["cy"]])
-    return (
-        f"zoompan=z='{zoom}':x='clip(({cx})-iw/zoom/2,0,iw-iw/zoom)'"
-        f":y='clip(({cy})-ih/zoom/2,0,ih-ih/zoom)':d=1:s=1920x1080:fps={FPS}"
-    )
 
 
 # --- caption ---
@@ -178,92 +109,96 @@ def sound_track(path: Path, seed: int, events: list[dict], total: float) -> Path
 # --- scenes ---
 
 
-def load(folder: Path) -> dict:
-    cut = folder / "cut.json"
-    return json.loads((cut if cut.exists() else folder / "manifest.json").read_text())
-
-
 def segment(out: Path, scene: str, after_card: bool, before_card: bool) -> Path:
     frames, parts = out / "frames" / scene, out / "segments"
-    manifest = load(frames)
-    times = [t for _, t in manifest["frames"]]
-    lines = []
-    for index, (name, at) in enumerate(manifest["frames"]):
-        until = times[index + 1] if index + 1 < len(times) else manifest["end"]
-        lines.append(concat(frames / name) + f"duration {max(until - at, 0.001):.4f}\n")
-    lines.append(concat(frames / manifest["frames"][-1][0]))
-    listing = frames / "list.txt"
-    listing.write_text("".join(lines))
-
-    picture = manifest["end"] - times[0]
+    take = manifest(frames)
+    picture = take.end - take.frames[0][1]
     voice = narration(out, scene)
     spoken = seconds(voice) if voice else 0.0
     total = max(picture, LEAD + spoken + TAIL) if voice else picture
     if not voice:
         voice = parts / f"{scene}.silent.wav"
         sf.write(voice, np.zeros(RATE // 10), RATE)
-    sfx = sound_track(
-        parts / f"{scene}.sfx.wav",
-        len(scene) + sum(map(ord, scene)),
-        manifest.get("events") or [],
-        total,
-    )
-
-    video = f"[0:v]fps={FPS},{camera_filter(manifest)},tpad=stop_mode=clone:stop_duration={max(total - picture, 0) + 0.5:.3f}"
-    inputs = [
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        str(listing),
-        "-i",
-        str(voice),
-        "-i",
-        str(sfx),
-    ]
-    is_card = bool(manifest.get("card"))
-    # Scene to scene is a straight cut: a dip to black between 2 bright pages is a flash.
-    edges = (",fade=t=in:st=0:d=0.5" if is_card or after_card else "") + (
-        f",fade=t=out:st={total - 0.5:.3f}:d=0.5" if is_card or before_card else ""
-    )
-    if manifest.get("caption") and not is_card:
-        image = caption_image(parts / f"{scene}.caption.png", *manifest["caption"])
+    seed = len(scene) + sum(map(ord, scene))
+    sfx = sound_track(parts / f"{scene}.sfx.wav", seed, take.events, total)
+    inputs = ["-f", "concat", "-safe", "0", "-i", str(_listing(frames, take))]
+    inputs += ["-i", str(voice), "-i", str(sfx)]
+    caption = bool(take.caption) and not take.card
+    if caption:
+        image = caption_image(parts / f"{scene}.caption.png", *take.caption)
         inputs += ["-loop", "1", "-i", str(image)]
-        video += (
-            f"{edges}[base];"
-            "[3:v]format=rgba,fade=t=in:st=0.4:d=0.4:alpha=1,fade=t=out:st=3.4:d=0.4:alpha=1[cap];"
-            "[base][cap]overlay=x=(W-w)/2:y=H-h-18:shortest=0[v]"
-        )
-    else:
-        video += f"{edges}[v]"
-    sound = (
-        f"[1:a]aresample={RATE},adelay={int(LEAD * 1000)}:all=1,apad=whole_dur={total:.3f}[voice];"
-        "[voice][2:a]amix=inputs=2:normalize=0:duration=first[a]"
-    )
     path = parts / f"{scene}.mp4"
     run(
-        [
-            ffmpeg(),
-            "-y",
-            *inputs,
+        [ffmpeg(), "-y", *inputs]
+        + [
             "-filter_complex",
-            f"{video};{sound}",
-            "-map",
-            "[v]",
-            "-map",
-            "[a]",
+            _filters(
+                take,
+                picture,
+                total,
+                fade_in=take.card or after_card,
+                fade_out=take.card or before_card,
+                caption=caption,
+            ),
         ]
-        + ["-t", f"{total:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", "17"]
-        + ["-pix_fmt", "yuv420p", "-r", str(FPS), "-c:a", "aac", "-b:a", "160k"]
+        + ["-map", "[v]", "-map", "[a]", "-t", f"{total:.3f}"]
+        + ["-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p"]
+        + ["-r", str(FPS), "-c:a", "aac", "-b:a", "160k"]
         + ["-ar", str(RATE), "-ac", "2", str(path)]
     )
     print(
         f"{scene}: picture {picture:.1f} s, narration {spoken:.1f} s, segment {total:.1f} s, "
-        f"{len(manifest.get('events') or [])} sounds, {len(manifest.get('camera') or [])} camera moves",
+        f"{len(take.events)} sounds, {len(take.camera)} camera moves",
         flush=True,
     )
     return path
+
+
+def _listing(frames: Path, take: Take) -> Path:
+    """The ffmpeg concat list that shows each frame until the next one."""
+    ends = [t for _, t in take.frames[1:]] + [take.end]
+    lines = [
+        concat(frames / name) + f"duration {max(until - at, SHORTEST):.4f}\n"
+        for (name, at), until in zip(take.frames, ends, strict=True)
+    ]
+    # The concat demuxer drops the last duration unless the last file repeats.
+    lines.append(concat(frames / take.frames[-1][0]))
+    listing = frames / "list.txt"
+    listing.write_text("".join(lines))
+    return listing
+
+
+def _filters(
+    take: Take,
+    picture: float,
+    total: float,
+    *,
+    fade_in: bool,
+    fade_out: bool,
+    caption: bool,
+) -> str:
+    """The picture: camera, held last frame, fades and caption; the sound: voice over clicks."""
+    crop = camera.crop(take.camera, take.size, take.scale, FPS)
+    held = max(total - picture, 0) + PAD
+    video = f"[0:v]fps={FPS},{crop},tpad=stop_mode=clone:stop_duration={held:.3f}"
+    # Scene to scene is a straight cut: a dip to black between 2 bright pages is a flash.
+    if fade_in:
+        video += f",fade=t=in:st=0:d={FADE}"
+    if fade_out:
+        video += f",fade=t=out:st={total - FADE:.3f}:d={FADE}"
+    if caption:
+        video += (
+            "[base];"
+            "[3:v]format=rgba,fade=t=in:st=0.4:d=0.4:alpha=1,fade=t=out:st=3.4:d=0.4:alpha=1[cap];"
+            "[base][cap]overlay=x=(W-w)/2:y=H-h-18:shortest=0[v]"
+        )
+    else:
+        video += "[v]"
+    audio = (
+        f"[1:a]aresample={RATE},adelay={int(LEAD * 1000)}:all=1,apad=whole_dur={total:.3f}[voice];"
+        "[voice][2:a]amix=inputs=2:normalize=0:duration=first[a]"
+    )
+    return f"{video};{audio}"
 
 
 def master(out: Path, joined: Path, final: Path) -> None:
@@ -291,7 +226,7 @@ def master(out: Path, joined: Path, final: Path) -> None:
     if music:
         length = seconds(joined)
         # The voice pushes the music down while it speaks; the music fades out at the end.
-        sound = (
+        mix = (
             f"[1:a]aresample={RATE},volume={MUSIC},afade=t=in:d=1.5,"
             f"afade=t=out:st={length - 2:.2f}:d=2[bed];"
             "[0:a]asplit[voice][key];"
@@ -301,12 +236,12 @@ def master(out: Path, joined: Path, final: Path) -> None:
         mixed = joined.with_name("mixed.mp4")
         run(
             [ffmpeg(), "-y", "-i", str(joined), "-stream_loop", "-1", "-i", str(music)]
-            + ["-filter_complex", sound, "-map", "0:v", "-map", "[a]", *encode]
+            + ["-filter_complex", mix, "-map", "0:v", "-map", "[a]", *encode]
             + ["-t", f"{length:.3f}", str(mixed)]
         )
         joined = mixed
     # Measure, then 1 fixed gain: a short clip with long pauses misleads a 1-pass leveller.
-    measured = sound_level(joined)
+    measured = sound(joined)[0]
     gain = 0.0 if measured is None else LOUDNESS - measured
     run(
         [
@@ -328,7 +263,7 @@ def build(out: Path, names: list[str] | None) -> Path:
     if missing:
         print(f"no take of {missing}: this build is a preview", flush=True)
     scenes = names or every
-    cards = {name for name in scenes if load(out / "frames" / name).get("card")}
+    cards = {name for name in scenes if manifest(out / "frames" / name).card}
     parts = [
         segment(
             out,
