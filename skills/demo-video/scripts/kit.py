@@ -33,6 +33,11 @@ WIDTH, HEIGHT = 1600, 900
 FRESH = 300
 
 SIGN_IN = 20 * 60  # seconds the sign-in window waits for the user
+# How far the pointer goes from the centre of a zoomed view, as a part of its
+# half width and half height, before the camera pans after it.
+EDGE = (0.62, 0.55)
+# An element that still moves after 25 looks, 110 ms apart (2.75 s), is used as is.
+SETTLE_TRIES, SETTLE_MS = 25, 110
 
 
 @dataclass(frozen=True)
@@ -290,7 +295,7 @@ class Demo:
         if zoom == 1 or self.fast:
             return
         half_w, half_h = WIDTH / zoom / 2, HEIGHT / zoom / 2
-        if abs(x - cx) > half_w * 0.62 or abs(y - cy) > half_h * 0.55:
+        if abs(x - cx) > half_w * EDGE[0] or abs(y - cy) > half_h * EDGE[1]:
             self._camera(x, y, zoom, 0.7)
 
     # --- overlay ---
@@ -359,7 +364,7 @@ class Demo:
     def settle(self, target: Locator) -> None:
         """Waits until `target` stops moving: a scroll, or a panel that opens."""
         last = None
-        for _ in range(25):
+        for _ in range(SETTLE_TRIES):
             box = target.bounding_box()
             if (
                 box
@@ -369,7 +374,7 @@ class Demo:
             ):
                 return
             last = box
-            self.page.wait_for_timeout(110)
+            self.page.wait_for_timeout(SETTLE_MS)
 
     def point(self, target: Locator, ms: int = 600, dx: float = 0.5, dy: float = 0.5):
         """Moves the drawn cursor to `target`."""

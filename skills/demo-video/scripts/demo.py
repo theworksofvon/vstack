@@ -39,6 +39,15 @@ from pathlib import Path
 from work import ROOT, folder
 
 HERE = Path(__file__).parent
+# claude.ai rejects a SKILL.md whose frontmatter has a key outside this set.
+PORTABLE = {
+    "name",
+    "description",
+    "license",
+    "compatibility",
+    "metadata",
+    "allowed-tools",
+}
 
 TEMPLATE = '''"""The scenes of this demo. Run: demo.py record <slug>"""
 from kit import card, scene, skip
@@ -239,17 +248,6 @@ def doctor(url: str | None) -> None:
         print("path: record")
     else:
         sys.exit("path: record, once the app answers: start it")
-
-
-# claude.ai rejects a SKILL.md whose frontmatter has a key outside this set.
-PORTABLE = {
-    "name",
-    "description",
-    "license",
-    "compatibility",
-    "metadata",
-    "allowed-tools",
-}
 
 
 def overlay() -> None:
