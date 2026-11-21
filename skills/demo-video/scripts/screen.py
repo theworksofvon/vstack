@@ -22,15 +22,13 @@ from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
-from camera import aim
+from camera import OUTPUT, aim
 from media import log, pts, seconds
 from PIL import Image
 from work import ROOM, narration, retire
 
-FPS = 30
-WIDTH = (
-    1920  # page pixels of the frames; the build crops from them and outputs 1920x1080
-)
+SAMPLE = 30  # frames per second taken from the recording; the build sets its own
+WIDTH, HEIGHT = OUTPUT  # page pixels of the frames: 1 page pixel per output pixel
 SHARP = 2  # frames are WIDTH * SHARP wide, so a 2x zoom stays sharp
 LOOK = (480, 270)  # the size each frame is compared at
 DIFF = 28  # a pixel that changes by more than 28 of 255 has changed
@@ -106,11 +104,10 @@ def _extract(video: Path, raw: Path) -> list[tuple[str, float]]:
     if raw.exists():
         shutil.rmtree(raw)
     raw.mkdir(parents=True)
-    size = WIDTH * SHARP
     # 16:9 from the middle, then 1 size for every recording.
     frames = (
         "crop='min(iw,ih*16/9)':'min(ih,iw*9/16)',"
-        f"scale={size}:{size * 9 // 16}:flags=lanczos,fps={FPS},"
+        f"scale={WIDTH * SHARP}:{HEIGHT * SHARP}:flags=lanczos,fps={SAMPLE},"
         "mpdecimate=hi=768:lo=320:frac=0.1,showinfo"
     )
     printed = log(
@@ -255,7 +252,7 @@ def _scene(
         "fast": [],
         "caption": [str(number), entry["caption"]] if entry.get("caption") else None,
         "card": False,
-        "size": [WIDTH, WIDTH * 9 // 16],
+        "size": [WIDTH, HEIGHT],
         "scale": SHARP,
         "source": "screen",
     }
@@ -297,7 +294,6 @@ def _camera(
     when the last zoom needs time to hold its result before it goes wide.
     """
     camera, events, zoomed = [], [], False
-    height = WIDTH * 9 // 16
     for index, (first, _) in enumerate(bursts):
         stop = bursts[index + 1][0] - 1 if index + 1 < len(bursts) else len(frames) - 1
         first = _landing(raw, frames, first, stop)
@@ -312,20 +308,20 @@ def _camera(
         area = (x1 - x0) * (y1 - y0) / (LOOK[0] * LOOK[1])
         if area <= SMALL:
             cx = (x0 + x1) / 2 / LOOK[0] * WIDTH
-            cy = (y0 + y1) / 2 / LOOK[1] * height
+            cy = (y0 + y1) / 2 / LOOK[1] * HEIGHT
             zoom = min(ZOOM, max(1.2, 0.5 / max(area, 0.01) ** 0.5))
-            cx, cy, zoom = aim(cx, cy, zoom, (WIDTH, height), SHARP)
+            cx, cy, zoom = aim(cx, cy, zoom, (WIDTH, HEIGHT), SHARP)
             camera.append(
                 {"t": max(at - 0.3, 0), "cx": cx, "cy": cy, "z": zoom, "d": 0.8}
             )
             zoomed = True
         elif zoomed:
             camera.append(
-                {"t": at, "cx": WIDTH / 2, "cy": height / 2, "z": 1.0, "d": 0.7}
+                {"t": at, "cx": WIDTH / 2, "cy": HEIGHT / 2, "z": 1.0, "d": 0.7}
             )
             zoomed = False
     if zoomed:
         out = max(total - 0.8, camera[-1]["t"] + camera[-1]["d"] + HOLD)
-        camera.append({"t": out, "cx": WIDTH / 2, "cy": height / 2, "z": 1.0, "d": 0.7})
+        camera.append({"t": out, "cx": WIDTH / 2, "cy": HEIGHT / 2, "z": 1.0, "d": 0.7})
         total = max(total, out + 0.8)
     return camera, events, total

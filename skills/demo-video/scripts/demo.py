@@ -70,23 +70,28 @@ def init(out: Path) -> None:
 
 def speak(*args: str) -> bool:
     """Runs Kokoro: with uv when there is one, else with this Python and pip."""
-    if shutil.which("uv"):
-        return _uv("speak.py", *args) == 0
-    # A failed install shows in the run below, which then returns False.
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-q", "kokoro>=0.9", "soundfile"],
-        check=False,
-    )
-    script = [sys.executable, str(HERE / "speak.py"), *args]
-    return subprocess.run(script, check=False).returncode == 0
+    command = _in_uv("speak.py")
+    if not command:
+        # A failed install shows in the run below, which then returns False.
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q", "kokoro>=0.9", "soundfile"],
+            check=False,
+        )
+        command = [sys.executable, str(HERE / "speak.py")]
+    return subprocess.run([*command, *args], check=False).returncode == 0
 
 
 def _uv(script: str, *args: str) -> int:
     """Runs a script of this folder in its own uv environment; its exit code."""
-    if not shutil.which("uv"):
+    command = _in_uv(script)
+    if not command:
         sys.exit(f"{script} runs with uv, and this machine has none: see setup.md")
-    command = ["uv", "run", "--quiet", str(HERE / script), *args]
-    return subprocess.run(command, check=False).returncode
+    return subprocess.run([*command, *args], check=False).returncode
+
+
+def _in_uv(script: str) -> list[str] | None:
+    """The command that runs `script` in its own uv environment, or None without uv."""
+    return ["uv", "run", "--quiet", str(HERE / script)] if shutil.which("uv") else None
 
 
 def narrate(out: Path, speed: float, voice: str) -> None:
@@ -115,7 +120,6 @@ def narrate(out: Path, speed: float, voice: str) -> None:
 
 def clone(recording: str | None, text: str | None) -> None:
     """Saves the user's voice sample: a file, or 15 s from the microphone now."""
-    sys.path.insert(0, str(HERE))
     from clone import PASSAGE
 
     if not recording:

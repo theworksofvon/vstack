@@ -18,6 +18,9 @@ from PIL import Image
 from work import ROOM, narration, takes
 
 WINDOW = 0.25
+MOVE_LOOK = (400, 225)  # the size each frame is compared at for motion
+MOVE_DIFF = 24  # a pixel that changes by more than 24 of 255 has changed
+MOVE_PIXELS = 6  # changed pixels, of MOVE_LOOK, that make a frame count as motion
 DIM_STEP = 25  # a brightness drop of 25 in 255 dims the page: a dialog opens
 DIM_RUN = 0.6  # seconds: a dim run shorter than this is a flash
 
@@ -43,12 +46,12 @@ def moving(folder: Path, m: dict) -> list[float]:
         last = None
         for name, _ in m["frames"]:
             image = Image.open(folder / name)
-            image.draft("L", (400, 225))
+            image.draft("L", MOVE_LOOK)
             small = np.asarray(image.convert("L"), dtype=np.int16)
             known[name] = bool(
                 last is not None
                 and last.shape == small.shape
-                and int((np.abs(small - last) > 24).sum()) >= 6
+                and int((np.abs(small - last) > MOVE_DIFF).sum()) >= MOVE_PIXELS
             )
             last = small
 
