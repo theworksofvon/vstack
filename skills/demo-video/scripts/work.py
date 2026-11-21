@@ -7,13 +7,15 @@
   <slug>/frames-old/              the takes that a newer take replaced
   profiles/<host>/                the browser sign-in of 1 app, for every demo of it
 
-This file needs the standard library only.
+This file needs the standard library only, as media.py does.
 """
 
 import json
 import os
 import time
 from pathlib import Path
+
+from media import seconds
 
 ROOT = (
     Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
@@ -75,6 +77,12 @@ def narration(out: Path, scene: str) -> Path | None:
     """The newest sound file of the scene: an older take from another narrator loses."""
     found = [p for p in (out / "narration").glob(f"{scene}.*") if p.suffix in SOUNDS]
     return max(found, key=lambda p: p.stat().st_mtime, default=None)
+
+
+def narrated(out: Path, scene: str) -> float | None:
+    """The seconds of picture that hold the scene's narration, with ROOM; None without one."""
+    voice = narration(out, scene)
+    return seconds(voice) + ROOM if voice else None
 
 
 def _found(out: Path) -> list[str]:

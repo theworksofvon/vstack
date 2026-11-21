@@ -25,7 +25,7 @@ import numpy as np
 from camera import OUTPUT, aim
 from media import log, pts, seconds
 from PIL import Image
-from work import ROOM, narration, retire
+from work import narrated, retire
 
 SAMPLE = 30  # frames per second taken from the recording; the build sets its own
 WIDTH, HEIGHT = OUTPUT  # page pixels of the frames: 1 page pixel per output pixel
@@ -219,14 +219,14 @@ def _scene(
     # there is one: the screen as it was before this scene's first change.
     gaps = len(_gaps(inside))
     keep = KEEP
-    voice = narration(out, entry["scene"])
-    if voice and gaps:
+    target = narrated(out, entry["scene"])
+    if target and gaps:
         # A narration longer than the picture: the pauses grow, so each
         # result stays on screen while the voice speaks about it.
         busy = sum(
             min(b - a, STILL) for (_, a), (_, b) in pairwise(inside) if b - a < STILL
         )
-        keep = min(max(KEEP, (seconds(voice) + ROOM - busy) / (gaps + 1)), LONGEST)
+        keep = min(max(KEEP, (target - busy) / (gaps + 1)), LONGEST)
     clock, last, frames, bursts = 0.0, inside[0][1], [], []
     for name, at in inside:
         gap = at - last

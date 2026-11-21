@@ -13,9 +13,8 @@ import json
 from pathlib import Path
 
 import numpy as np
-from media import seconds
 from PIL import Image
-from work import ROOM, narration, takes
+from work import ROOM, narrated, takes
 
 WINDOW = 0.25
 MOVE_LOOK = (400, 225)  # the size each frame is compared at for motion
@@ -185,17 +184,16 @@ def edit(out: Path, mode: str) -> None:
             for a, b in sorted(m.get("fast") or [], reverse=True):
                 if b - a > 4:
                     cut(m, a + 2.2, b - 1.6)
-        voice = narration(out, folder.name)
-        target = seconds(voice) + ROOM if voice else 0.0
+        target = narrated(out, folder.name)
         # A screen recording comes paced from `finish`: its pauses already fit the narration.
         pace, done = 1.0, dict(m)
         if m.get("source") != "screen":
-            pace, done = fit(m, rules, target)
+            pace, done = fit(m, rules, target or 0.0)
         done.pop("moving")
         flashes = deflash(folder, done)
         (folder / "cut.json").write_text(json.dumps(done))
         print(
             f"{folder.name}: {before:.1f} s -> {done['end']:.1f} s, action at {pace:.2f}x, "
-            f"narration {target - ROOM if voice else 0:.1f} s, {flashes} flash frames dropped",
+            f"narration {target - ROOM if target else 0:.1f} s, {flashes} flash frames dropped",
             flush=True,
         )

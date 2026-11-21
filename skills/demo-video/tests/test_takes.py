@@ -1,6 +1,9 @@
 import json
 
-from work import takes, untaken
+import numpy as np
+import pytest
+import soundfile as sf
+from work import ROOM, narrated, takes, untaken
 
 
 def take(out, name):
@@ -16,3 +19,11 @@ def test_an_old_take_is_reported_once(tmp_path, capsys):
     assert takes(tmp_path) == ["01", "02"]
     assert untaken(tmp_path) == ["03"]
     assert capsys.readouterr().out.count("05: not in the scene list") == 1
+
+
+def test_a_scene_needs_its_narration_and_some_room(tmp_path):
+    (tmp_path / "narration").mkdir()
+    sf.write(tmp_path / "narration" / "01.wav", np.zeros(24_000), 24_000)
+
+    assert narrated(tmp_path, "01") == pytest.approx(1.0 + ROOM, abs=0.05)
+    assert narrated(tmp_path, "02") is None
