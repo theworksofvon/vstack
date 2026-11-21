@@ -172,7 +172,9 @@ def _start(
         r"creation_?date\s*:\s*(\S+)|creation_time\s*:\s*(\S+)", log("-i", str(video))
     )
     if stamp:
-        made = datetime.fromisoformat(stamp.group(1) or stamp.group(2)).timestamp()
+        # Python 3.10, on the pip path, reads no trailing Z.
+        utc = (stamp.group(1) or stamp.group(2)).replace("Z", "+00:00")
+        made = datetime.fromisoformat(utc).timestamp()
 
         # Some recorders stamp the end, not the start: take the one the marks fit.
         def inside(s: float) -> bool:
