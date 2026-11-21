@@ -111,7 +111,7 @@ def narration(out: Path, scene: str) -> Path | None:
     return max(found, key=lambda p: p.stat().st_mtime, default=None)
 
 
-def narrated(out: Path, scene: str) -> float | None:
+def target_length(out: Path, scene: str) -> float | None:
     """The seconds of picture that hold the scene's narration, with ROOM; None without one."""
     voice = narration(out, scene)
     return seconds(voice) + ROOM if voice else None

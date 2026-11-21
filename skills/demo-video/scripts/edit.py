@@ -15,10 +15,11 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from work import ROOM, Take, narrated, takes
+from work import ROOM, Take, takes, target_length
 
 WINDOW = 0.25
 MOVE_LOOK = (400, 225)  # the size each frame is compared at for motion
+LUMA_LOOK = (160, 90)  # the size each frame is measured at for brightness
 MOVE_DIFF = 24  # a pixel that changes by more than 24 of 255 has changed
 MOVE_PIXELS = 6  # changed pixels, of MOVE_LOOK, that make a frame count as motion
 DIM_STEP = 25  # a brightness drop of 25 in 255 dims the page: a dialog opens
@@ -69,7 +70,7 @@ def luma(folder: Path, names: list[str]) -> dict[str, float]:
         for name in names:
             if name not in known:
                 with Image.open(folder / name) as image:
-                    image.draft("L", (160, 90))
+                    image.draft("L", LUMA_LOOK)
                     known[name] = float(np.asarray(image.convert("L")).mean())
 
     return _cached(folder / "luma.json", names, measure)
@@ -189,7 +190,7 @@ def edit(out: Path, mode: str) -> None:
             for a, b in sorted(take.fast, reverse=True):
                 if b - a > LONG_FAST:
                     take = cut(take, a + FAST_LEAD, b - FAST_TAIL)
-        target = narrated(out, folder.name)
+        target = target_length(out, folder.name)
         # A screen recording comes paced from `finish`: its pauses already fit the narration.
         pace, done = 1.0, take
         if take.source != "screen":

@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pytest
 import soundfile as sf
-from work import ROOM, Take, narrated, takes, untaken
+from work import ROOM, Take, takes, target_length, untaken
 
 
 def take(out, name):
@@ -25,8 +25,8 @@ def test_a_scene_needs_its_narration_and_some_room(tmp_path):
     (tmp_path / "narration").mkdir()
     sf.write(tmp_path / "narration" / "01.wav", np.zeros(24_000), 24_000)
 
-    assert narrated(tmp_path, "01") == pytest.approx(1.0 + ROOM, abs=0.05)
-    assert narrated(tmp_path, "02") is None
+    assert target_length(tmp_path, "01") == pytest.approx(1.0 + ROOM, abs=0.05)
+    assert target_length(tmp_path, "02") is None
 
 
 @pytest.mark.parametrize("source", [{}, {"source": "screen"}])

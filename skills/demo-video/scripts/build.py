@@ -127,11 +127,20 @@ def segment(out: Path, scene: str, after_card: bool, before_card: bool) -> Path:
     if caption:
         image = caption_image(parts / f"{scene}.caption.png", *take.caption)
         inputs += ["-loop", "1", "-i", str(image)]
-    fades = (take.card or after_card, take.card or before_card)
     path = parts / f"{scene}.mp4"
     run(
         [ffmpeg(), "-y", *inputs]
-        + ["-filter_complex", _filters(take, picture, total, fades, caption)]
+        + [
+            "-filter_complex",
+            _filters(
+                take,
+                picture,
+                total,
+                fade_in=take.card or after_card,
+                fade_out=take.card or before_card,
+                caption=caption,
+            ),
+        ]
         + ["-map", "[v]", "-map", "[a]", "-t", f"{total:.3f}"]
         + ["-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p"]
         + ["-r", str(FPS), "-c:a", "aac", "-b:a", "160k"]
@@ -163,7 +172,9 @@ def _filters(
     take: Take,
     picture: float,
     total: float,
-    fades: tuple[bool, bool],
+    *,
+    fade_in: bool,
+    fade_out: bool,
     caption: bool,
 ) -> str:
     """The picture: camera, held last frame, fades and caption; the sound: voice over clicks."""
@@ -171,9 +182,9 @@ def _filters(
     held = max(total - picture, 0) + PAD
     video = f"[0:v]fps={FPS},{crop},tpad=stop_mode=clone:stop_duration={held:.3f}"
     # Scene to scene is a straight cut: a dip to black between 2 bright pages is a flash.
-    if fades[0]:
+    if fade_in:
         video += f",fade=t=in:st=0:d={FADE}"
-    if fades[1]:
+    if fade_out:
         video += f",fade=t=out:st={total - FADE:.3f}:d={FADE}"
     if caption:
         video += (

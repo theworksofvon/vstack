@@ -55,7 +55,7 @@ def report(video: Path) -> list[str]:
     lengths = streams(video)
     length = max(lengths["video"] + [0.0])
     levels = brightness(video)
-    flashing, black = strobes(levels), dips(levels)
+    flashing, blackouts = strobes(levels), dips(levels)
     found = cuts(video)
     loud, pauses, quiet = sound(video)
     print(f"file      {video}")
@@ -64,24 +64,24 @@ def report(video: Path) -> list[str]:
     print(f"sound     {loud} LUFS, {pauses} pauses, {quiet:.1f} s of pause")
     print(
         f"flashes   {len(flashing)} strobes {_round(flashing)}, "
-        f"{len(black)} cuts through black {_round(black)}"
+        f"{len(blackouts)} cuts through black {_round(blackouts)}"
     )
     print(f"sheet     {sheet(video, length)}")
-    return faults(lengths, flashing, black, loud)
+    return faults(lengths, flashing, blackouts, loud)
 
 
 def faults(
     lengths: dict[str, list[float]],
     flashing: list[float],
-    black: list[float],
+    blackouts: list[float],
     loud: float | None,
 ) -> list[str]:
     """The rules a finished video must meet, from its measurements."""
     found = []
     if flashing:
         found.append(f"more than {LIMIT} flashes in 1 second at {_round(flashing)} s")
-    if black:
-        found.append(f"a cut through a black frame at {_round(black)} s")
+    if blackouts:
+        found.append(f"a cut through a black frame at {_round(blackouts)} s")
     video, audio = lengths["video"], lengths["audio"]
     if len(video) != 1 or len(audio) != 1:
         found.append(f"{len(video)} video and {len(audio)} audio streams, not 1 and 1")

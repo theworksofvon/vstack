@@ -25,7 +25,7 @@ import numpy as np
 from camera import OUTPUT, Note, aim
 from media import log, pts, seconds
 from PIL import Image
-from work import Take, narrated, retire
+from work import Take, retire, target_length
 
 SAMPLE = 30  # frames per second taken from the recording; the build sets its own
 WIDTH, HEIGHT = OUTPUT  # page pixels of the frames: 1 page pixel per output pixel
@@ -41,8 +41,8 @@ LEAST = 1.2  # the least zoom worth a camera move
 FILL = 0.5  # a zoom shows a change at about half the view's width and height
 TINY = 0.01  # the smallest changed area a zoom is sized for: a caret, a dot
 NOTICED = 20  # changed pixels, of LOOK, that a viewer sees as a result
-LEAD = 0.3  # seconds the camera starts before the click it goes to
-IN, OUT = 0.8, 0.7  # seconds a zoom in and a zoom back out take
+CAMERA_LEAD = 0.3  # seconds the camera starts before the click it goes to
+ZOOM_IN, ZOOM_OUT = 0.8, 0.7  # seconds a zoom in and a zoom back out take
 AFTER = 0.8  # seconds the scene runs after its last zoom out starts
 LONGEST = 3.0  # the longest pause between 2 actions, however long the narration
 HOLD = 1.2  # seconds the zoomed result stays on screen before the camera goes wide
@@ -221,7 +221,7 @@ def _scene(
 ) -> None:
     folder = out / "frames" / entry["scene"]
     folder.mkdir(parents=True)
-    frames, bursts, total = _retime(inside, end, narrated(out, entry["scene"]))
+    frames, bursts, total = _retime(inside, end, target_length(out, entry["scene"]))
     for name, _ in frames:
         try:
             (folder / name).hardlink_to(raw / name)
@@ -323,7 +323,7 @@ def _camera(
             cy = (y0 + y1) / 2 / LOOK[1] * HEIGHT
             fill = FILL / max(area, TINY) ** 0.5
             cx, cy, zoom = aim(cx, cy, min(ZOOM, max(LEAST, fill)), OUTPUT, SHARP)
-            camera.append(Note(max(at - LEAD, 0), cx, cy, zoom, IN))
+            camera.append(Note(max(at - CAMERA_LEAD, 0), cx, cy, zoom, ZOOM_IN))
             zoomed = True
         elif zoomed:
             camera.append(_wide(at))
@@ -336,4 +336,4 @@ def _camera(
 
 
 def _wide(at: float) -> Note:
-    return Note(at, WIDTH / 2, HEIGHT / 2, 1.0, OUT)
+    return Note(at, WIDTH / 2, HEIGHT / 2, 1.0, ZOOM_OUT)
