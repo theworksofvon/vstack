@@ -221,36 +221,12 @@ def _scene(
 ) -> None:
     folder = out / "frames" / entry["scene"]
     folder.mkdir(parents=True)
-
-    # Video time: each still gap keeps `keep` seconds, the rest plays as
-    # recorded. `inside` starts with the last frame of the scene before, when
-    # there is one: the screen as it was before this scene's first change.
-    gaps = len(_gaps(inside))
-    keep = KEEP
-    target = narrated(out, entry["scene"])
-    if target and gaps:
-        # A narration longer than the picture: the pauses grow, so each
-        # result stays on screen while the voice speaks about it.
-        busy = sum(
-            min(b - a, STILL) for (_, a), (_, b) in pairwise(inside) if b - a < STILL
-        )
-        keep = min(max(KEEP, (target - busy) / (gaps + 1)), LONGEST)
-    clock, last, frames, bursts = 0.0, inside[0][1], [], []
-    for name, at in inside:
-        gap = at - last
-        if gap >= STILL:
-            bursts.append((len(frames), clock + keep))
-            clock += keep
-        else:
-            clock += gap
-        last = at
+    frames, bursts, total = _retime(inside, end, narrated(out, entry["scene"]))
+    for name, _ in frames:
         try:
             (folder / name).hardlink_to(raw / name)
         except OSError:
             shutil.copy(raw / name, folder / name)
-        frames.append([name, clock])
-    total = clock + max(min(end - last, keep), KEEP)
-
     camera, events, total = _camera(raw, frames, bursts, total)
     Take(
         frames=frames,
@@ -269,6 +245,35 @@ def _scene(
         f"{len(events)} actions, {len(camera)} camera moves",
         flush=True,
     )
+
+
+def _retime(
+    inside: list[tuple[str, float]], end: float, target: float | None
+) -> tuple[list[list], list[tuple[int, float]], float]:
+    """The frames in video time, the start of each burst of change, and the length.
+
+    Each still gap keeps `keep` seconds, the rest plays as recorded. `inside`
+    starts with the last frame of the scene before, when there is one: the
+    screen as it was before this scene's first change.
+    """
+    gaps = len(_gaps(inside))
+    keep = KEEP
+    if target and gaps:
+        # A narration longer than the picture: the pauses grow, so each
+        # result stays on screen while the voice speaks about it.
+        busy = sum(
+            min(b - a, STILL) for (_, a), (_, b) in pairwise(inside) if b - a < STILL
+        )
+        keep = min(max(KEEP, (target - busy) / (gaps + 1)), LONGEST)
+    clock, last, frames, bursts = 0.0, inside[0][1], [], []
+    for name, at in inside:
+        gap = at - last
+        if gap >= STILL:
+            bursts.append((len(frames), clock + keep))
+        clock += keep if gap >= STILL else gap
+        last = at
+        frames.append([name, clock])
+    return frames, bursts, clock + max(min(end - last, keep), KEEP)
 
 
 def _landing(raw: Path, frames: list[list], first: int, stop: int) -> int:

@@ -9,6 +9,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import build
 import camera
 import check
 import edit
@@ -125,3 +126,26 @@ def test_check_fails_a_video_that_is_too_loud(tmp_path):
 
     with pytest.raises(SystemExit, match="the target is -18, give or take 3"):
         check.check(tmp_path)
+
+
+@pytest.mark.parametrize("cards", [(False, False), (True, True)])
+def test_the_segment_command_is_unchanged(tmp_path, film, monkeypatch, cards):
+    out = tmp_path / "demo"
+    out.mkdir()
+    marks(out, {"01": 0.0})
+    screen.finish(out, film("walk.mp4", 2), offset=0)
+    path = out / "frames" / "01" / "manifest.json"
+    take = json.loads(path.read_text())
+    path.write_text(json.dumps({**take, "caption": ["1", "A scene"]}))
+    (out / "segments").mkdir()
+    commands = []
+    monkeypatch.setattr(build, "run", commands.append)
+
+    build.segment(out, "01", after_card=cards[0], before_card=cards[1])
+
+    command = [arg.replace(str(tmp_path), "<tmp>") for arg in commands[0][1:]]
+    listing = (out / "frames" / "01" / "list.txt").read_text()
+    same(
+        f"segment_{cards[0]}",
+        {"command": command, "listing": listing.replace(str(tmp_path), "<tmp>")},
+    )

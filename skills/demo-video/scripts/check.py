@@ -16,6 +16,9 @@ from work import untaken
 
 STEP = 40  # a brightness change of 40 in 255 between 2 frames is a visible jump
 LIMIT = 3  # flashes in any 1 second: the photosensitivity limit of WCAG 2.3.1
+BLACK = 4  # a mean brightness under 4 of 255 is a black frame
+BRIGHT = 80  # a mean brightness over 80 of 255 is a bright page
+DIP = 0.5  # seconds: black with a bright page this close on each side is a cut through black
 DRIFT = 0.15  # seconds that sound and picture can differ in length
 LEEWAY = 3  # LU around LOUDNESS that still passes
 
@@ -51,7 +54,8 @@ def report(video: Path) -> list[str]:
     """Prints the measurements of `video`, and returns its faults."""
     lengths = streams(video)
     length = max(lengths["video"] + [0.0])
-    strobes, dips = flashes(brightness(video))
+    levels = brightness(video)
+    flashing, black = strobes(levels), dips(levels)
     found = cuts(video)
     loud, pauses, quiet = sound(video)
     print(f"file      {video}")
@@ -59,25 +63,25 @@ def report(video: Path) -> list[str]:
     print(f"cuts      {len(found)} hard cuts (a low estimate: slow fades do not count)")
     print(f"sound     {loud} LUFS, {pauses} pauses, {quiet:.1f} s of pause")
     print(
-        f"flashes   {len(strobes)} strobes {_round(strobes)}, "
-        f"{len(dips)} cuts through black {_round(dips)}"
+        f"flashes   {len(flashing)} strobes {_round(flashing)}, "
+        f"{len(black)} cuts through black {_round(black)}"
     )
     print(f"sheet     {sheet(video, length)}")
-    return faults(lengths, strobes, dips, loud)
+    return faults(lengths, flashing, black, loud)
 
 
 def faults(
     lengths: dict[str, list[float]],
-    strobes: list[float],
-    dips: list[float],
+    flashing: list[float],
+    black: list[float],
     loud: float | None,
 ) -> list[str]:
     """The rules a finished video must meet, from its measurements."""
     found = []
-    if strobes:
-        found.append(f"more than {LIMIT} flashes in 1 second at {_round(strobes)} s")
-    if dips:
-        found.append(f"a cut through a black frame at {_round(dips)} s")
+    if flashing:
+        found.append(f"more than {LIMIT} flashes in 1 second at {_round(flashing)} s")
+    if black:
+        found.append(f"a cut through a black frame at {_round(black)} s")
     video, audio = lengths["video"], lengths["audio"]
     if len(video) != 1 or len(audio) != 1:
         found.append(f"{len(video)} video and {len(audio)} audio streams, not 1 and 1")
@@ -105,27 +109,29 @@ def brightness(video: Path) -> list[tuple[float, float]]:
     return list(zip(pts(printed), map(float, re.findall(r"YAVG=([\d.]+)", printed))))
 
 
-def flashes(levels: list[tuple[float, float]]) -> tuple[list[float], list[float]]:
-    """(the seconds that hold more than LIMIT flashes, the cuts through black)."""
-    jumps = [
-        (t, now - before)
-        for (_, before), (t, now) in pairwise(levels)
-        if abs(now - before) >= STEP
-    ]
-    strobes = []
-    for i, (t, _) in enumerate(jumps):
-        inside = [j for j in jumps[i:] if j[0] - t <= 1.0]
+def strobes(levels: list[tuple[float, float]]) -> list[float]:
+    """The seconds that start a run of more than LIMIT flashes in 1 second."""
+    jumps = [t for (_, a), (t, b) in pairwise(levels) if abs(b - a) >= STEP]
+    found = []
+    for i, t in enumerate(jumps):
+        inside = [j for j in jumps[i:] if j - t <= 1.0]
         # A flash is 1 jump down and 1 jump up.
-        if len(inside) > LIMIT * 2 and (not strobes or t - strobes[-1] > 1.0):
-            strobes.append(t)
-    dips = []
+        if len(inside) > LIMIT * 2 and (not found or t - found[-1] > 1.0):
+            found.append(t)
+    return found
+
+
+def dips(levels: list[tuple[float, float]]) -> list[float]:
+    """The seconds of a cut through black: a bright page, black, then bright again."""
+    found = []
     for i in range(1, len(levels) - 1):
         t, level = levels[i]
-        if level < 4 and levels[i - 1][1] > 80:
-            after = [v for when, v in levels[i:] if when - t <= 0.5]
-            if after and max(after) > 80:
-                dips.append(t)
-    return strobes, dips
+        if level >= BLACK or levels[i - 1][1] <= BRIGHT:
+            continue
+        after = [v for when, v in levels[i:] if when - t <= DIP]
+        if after and max(after) > BRIGHT:
+            found.append(t)
+    return found
 
 
 def cuts(video: Path) -> list[float]:
