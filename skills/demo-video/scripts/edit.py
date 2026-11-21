@@ -18,6 +18,8 @@ from PIL import Image
 from work import ROOM, narration, takes
 
 WINDOW = 0.25
+DIM_STEP = 25  # a brightness drop of 25 in 255 dims the page: a dialog opens
+DIM_RUN = 0.6  # seconds: a dim run shorter than this is a flash
 
 # demo: real speed, only the dead time goes. product: as short as the narration allows.
 MODES = {
@@ -67,8 +69,8 @@ def luma(folder: Path, names: list[str]) -> dict[str, float]:
     return _cached(folder / "luma.json", names, measure)
 
 
-def deflash(folder: Path, m: dict, least: float = 0.6, step: float = 25) -> int:
-    """Drops each dim run shorter than `least` seconds, so the frame before it holds.
+def deflash(folder: Path, m: dict) -> int:
+    """Drops each dim run shorter than DIM_RUN seconds, so the frame before it holds.
 
     A dialog that opens and closes at high speed dims the page and brightens
     it again: several in 1 second is a strobe.
@@ -78,10 +80,10 @@ def deflash(folder: Path, m: dict, least: float = 0.6, step: float = 25) -> int:
     drop, start = set(), None
     for i in range(1, len(frames)):
         change = level[frames[i][0]] - level[frames[i - 1][0]]
-        if change < -step and start is None:
+        if change < -DIM_STEP and start is None:
             start = i
-        elif change > step and start is not None:
-            if frames[i][1] - frames[start][1] < least:
+        elif change > DIM_STEP and start is not None:
+            if frames[i][1] - frames[start][1] < DIM_RUN:
                 drop.update(range(start, i))
             start = None
     m["frames"] = [f for i, f in enumerate(frames) if i not in drop]
@@ -157,6 +159,16 @@ def cut(m: dict, a: float, b: float) -> None:
     m["end"] = shift(m["end"])
 
 
+def fit(m: dict, rules: dict, target: float) -> tuple[float, dict]:
+    """The pace in the mode's range at which the take lasts `target` seconds."""
+    low, high = rules["pace"]
+    for _ in range(24):  # each halves the range: 24 leave it under 1e-6
+        pace = (low + high) / 2
+        done = warp(m, speeds(m, rules["idle"], pace, max(rules["typing"], pace * 2)))
+        low, high = (pace, high) if done["end"] > target else (low, pace)
+    return pace, done
+
+
 def edit(out: Path, mode: str) -> None:
     rules = MODES[mode]
     for folder in (out / "frames" / name for name in takes(out)):
@@ -172,15 +184,10 @@ def edit(out: Path, mode: str) -> None:
                     cut(m, a + 2.2, b - 1.6)
         voice = narration(out, folder.name)
         target = seconds(voice) + ROOM if voice else 0.0
-        low, high = rules["pace"]
         # A screen recording comes paced from `finish`: its pauses already fit the narration.
         pace, done = 1.0, dict(m)
-        for _ in range(0 if m.get("source") == "screen" else 24):
-            pace = (low + high) / 2
-            done = warp(
-                m, speeds(m, rules["idle"], pace, max(rules["typing"], pace * 2))
-            )
-            low, high = (pace, high) if done["end"] > target else (low, pace)
+        if m.get("source") != "screen":
+            pace, done = fit(m, rules, target)
         done.pop("moving")
         flashes = deflash(folder, done)
         (folder / "cut.json").write_text(json.dumps(done))

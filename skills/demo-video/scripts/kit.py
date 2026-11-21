@@ -18,6 +18,8 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from camera import aim
@@ -30,7 +32,24 @@ WIDTH, HEIGHT = 1600, 900
 # the start of every scene agent in 1 parallel round.
 FRESH = 300
 
-SCENES: dict[str, dict] = {}
+SIGN_IN = 20 * 60  # seconds the sign-in window waits for the user
+
+
+@dataclass(frozen=True)
+class Scene:
+    run: Callable[["Demo"], None]
+    caption: str | None
+
+
+@dataclass(frozen=True)
+class Card:
+    title: str
+    sub: str
+    kicker: str
+    seconds: float
+
+
+SCENES: dict[str, Scene | Card] = {}
 
 
 class Skip(Exception):
@@ -44,11 +63,11 @@ def skip(reason: str) -> None:
     raise Skip(reason)
 
 
-def scene(name: str, caption: str | None = None, step: str | None = None):
+def scene(name: str, caption: str | None = None):
     """Registers a scene. `caption` shows for the first seconds of the scene."""
 
     def register(run):
-        SCENES[name] = {"run": run, "caption": caption, "step": step}
+        SCENES[name] = Scene(run, caption)
         return run
 
     return register
@@ -58,9 +77,7 @@ def card(
     name: str, title: str, sub: str = "", kicker: str = "", seconds: float = 6.0
 ) -> None:
     """Registers a title card. `title` can hold <em> for the accent colour."""
-    SCENES[name] = {
-        "card": {"title": title, "sub": sub, "kicker": kicker, "seconds": seconds}
-    }
+    SCENES[name] = Card(title, sub, kicker, seconds)
 
 
 class Recorder:
@@ -400,20 +417,20 @@ class Demo:
         self.page.screenshot(path=str(self.rec.out / "shots" / f"{name}.png"))
 
 
-def _card_page(out: Path, name: str, spec: dict) -> Path:
+def _card_page(out: Path, name: str, spec: Card) -> Path:
     parts = [
         '<!doctype html><meta charset="utf-8">',
         f"<style>{(HERE / 'card.css').read_text()}</style>",
         '<div class="grid"></div>',
     ]
-    if spec["kicker"]:
+    if spec.kicker:
         parts.append(
-            f'<div class="kicker a" style="--d:.1s">{html.escape(spec["kicker"])}</div>'
+            f'<div class="kicker a" style="--d:.1s">{html.escape(spec.kicker)}</div>'
         )
-    parts.append(f'<h1 class="a" style="--d:.35s">{spec["title"]}</h1>')
-    if spec["sub"]:
+    parts.append(f'<h1 class="a" style="--d:.35s">{spec.title}</h1>')
+    if spec.sub:
         parts.append(
-            f'<div class="sub a" style="--d:1.3s">{html.escape(spec["sub"])}</div>'
+            f'<div class="sub a" style="--d:1.3s">{html.escape(spec.sub)}</div>'
         )
     path = out / "cards" / f"{name}.html"
     path.parent.mkdir(exist_ok=True)
@@ -421,7 +438,7 @@ def _card_page(out: Path, name: str, spec: dict) -> Path:
     return path
 
 
-def _run_card(d: Demo, name: str, spec: dict) -> None:
+def _run_card(d: Demo, name: str, spec: Card) -> None:
     d.page.goto(_card_page(d.rec.out, name, spec).as_uri())
     d.page.evaluate("__demo.move(-200, -200, 0)")
     d.page.wait_for_timeout(400)
@@ -429,20 +446,20 @@ def _run_card(d: Demo, name: str, spec: dict) -> None:
     d.rec.is_card = True
     try:
         d.page.evaluate("document.body.classList.add('go')")
-        d.page.wait_for_timeout(int(spec["seconds"] * 1000))
+        d.page.wait_for_timeout(int(spec.seconds * 1000))
     except BaseException:
         d.rec.abandon()
         raise
     d.rec.stop()
 
 
-def _run_scene(d: Demo, name: str, spec: dict, number: int) -> None:
+def _run_scene(d: Demo, name: str, spec: Scene, number: int) -> None:
     d.cam = (WIDTH / 2, HEIGHT / 2, 1.0)
     d.rec.start(name)
-    if spec["caption"]:
-        d.rec.caption = [spec["step"] or str(number), spec["caption"]]
+    if spec.caption:
+        d.rec.caption = [str(number), spec.caption]
     try:
-        spec["run"](d)
+        spec.run(d)
     except Skip as reason:
         print(f"{name}: skipped, {reason}", flush=True)
         d.rec.stop(keep=False)
@@ -469,7 +486,7 @@ def _launch(start, *args, **kwargs):
         return start(*args, **kwargs)
 
 
-def load(scenes_file: Path) -> tuple[dict[str, dict], list[Path]]:
+def load(scenes_file: Path) -> tuple[dict[str, Scene | Card], list[Path]]:
     """The scenes that registered, and the files that failed to load.
 
     scenes.py, then each scene_NN.py beside it: 1 file per scene lets 1
@@ -510,7 +527,8 @@ def record(
     refresh(out)
     state = out / "state.json"
     numbers = {
-        n: i + 1 for i, n in enumerate(n for n in sorted(scenes) if "run" in scenes[n])
+        n: i + 1
+        for i, n in enumerate(n for n in sorted(scenes) if isinstance(scenes[n], Scene))
     }
     with sync_playwright() as p:
         browser = _launch(
@@ -532,8 +550,8 @@ def record(
         demo = Demo(page, Recorder(page, out, scale))
         try:
             for name in names:
-                if "card" in scenes[name]:
-                    _run_card(demo, name, scenes[name]["card"])
+                if isinstance(scenes[name], Card):
+                    _run_card(demo, name, scenes[name])
                 else:
                     _run_scene(demo, name, scenes[name], numbers[name])
         finally:
@@ -546,7 +564,7 @@ def record(
             browser.close()
 
 
-def login(out: Path, url: str, minutes: int = 20) -> None:
+def login(out: Path, url: str) -> None:
     """Saves a signed-in session for `url` to `out/state.json`.
 
     1 browser profile per app keeps the identity provider's own cookie,
@@ -558,10 +576,10 @@ def login(out: Path, url: str, minutes: int = 20) -> None:
         if _silent(out, url):
             print("signed in without a window:", out / "state.json", flush=True)
             return
-        _window(out, url, minutes)
+        _window(out, url)
 
 
-def _window(out: Path, url: str, minutes: int) -> None:
+def _window(out: Path, url: str) -> None:
     """Waits for the user to sign in to `url` in a browser window."""
     with sync_playwright() as p:
         context = _launch(
@@ -592,7 +610,7 @@ def _window(out: Path, url: str, minutes: int) -> None:
             "sign in in the window titled SIGN IN HERE; it closes when the app shows",
             flush=True,
         )
-        deadline, seen = time.time() + minutes * 60, None
+        deadline, seen = time.time() + SIGN_IN, None
         while time.time() < deadline:
             urls = [candidate.url for candidate in context.pages]
             where = " ".join(u.split("?")[0] for u in urls)

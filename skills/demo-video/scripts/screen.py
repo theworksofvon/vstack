@@ -18,6 +18,7 @@ import re
 import shutil
 import time
 from datetime import datetime
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -31,15 +32,17 @@ WIDTH = (
     1920  # page pixels of the frames; the build crops from them and outputs 1920x1080
 )
 SHARP = 2  # frames are WIDTH * SHARP wide, so a 2x zoom stays sharp
+LOOK = (480, 270)  # the size each frame is compared at
+DIFF = 28  # a pixel that changes by more than 28 of 255 has changed
 STILL = 1.0  # seconds with no change before a burst counts as a new action
 KEEP = 0.7  # seconds of a still gap that stay in the video
 SLACK = 1.5  # seconds a mark can fall outside its still gap: the clocks differ a little
-CARET = 14  # changed pixels, of 480x270: a caret blink measured 8 to 10, a typed letter 19 to 27
+CARET = 14  # changed pixels, of LOOK: a caret blink measured 8 to 10, a typed letter 19 to 27
 ZOOM = 1.5  # the zoom on a small change
 LONGEST = 3.0  # the longest pause between 2 actions, however long the narration
 HOLD = 1.2  # seconds the zoomed result stays on screen before the camera goes wide
 SMALL = 0.35  # a change smaller than this part of the screen gets a zoom
-GLIDE = 150  # changed pixels per frame, of 480x270: the drawn cursor's glide measured 30 to 100, a click's result 429 and up
+GLIDE = 150  # changed pixels per frame, of LOOK: the drawn cursor's glide measured 30 to 100, a click's result 429 and up
 REACH = 0.7  # seconds the drawn cursor glides before `__demo.click` clicks
 
 
@@ -132,7 +135,7 @@ def _visible(raw: Path, times: list[tuple[str, float]]) -> list[tuple[str, float
     kept, last = [], None
     for name, at in times:
         small = _small(raw, name)
-        if last is None or int((np.abs(small - last) > 28).sum()) >= CARET:
+        if last is None or _changed(small, last).sum() >= CARET:
             kept.append((name, at))
             last = small
     return kept
@@ -140,8 +143,12 @@ def _visible(raw: Path, times: list[tuple[str, float]]) -> list[tuple[str, float
 
 def _small(raw: Path, name: str) -> np.ndarray:
     image = Image.open(raw / name)
-    image.draft("L", (480, 270))
-    return np.asarray(image.convert("L").resize((480, 270)), dtype=np.int16)
+    image.draft("L", LOOK)
+    return np.asarray(image.convert("L").resize(LOOK), dtype=np.int16)
+
+
+def _changed(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    return np.abs(a - b) > DIFF
 
 
 # --- timing ---
@@ -184,7 +191,7 @@ def _start(
 
 def _gaps(times: list[tuple[str, float]]) -> list[tuple[float, float]]:
     """The still spans: no changed frame for STILL seconds or more."""
-    return [(a, b) for (_, a), (_, b) in zip(times, times[1:]) if b - a >= STILL]
+    return [(a, b) for (_, a), (_, b) in pairwise(times) if b - a >= STILL]
 
 
 def _snap(at: float, gaps: list[tuple[float, float]]) -> float:
@@ -214,16 +221,14 @@ def _scene(
     # Video time: each still gap keeps `keep` seconds, the rest plays as
     # recorded. `inside` starts with the last frame of the scene before, when
     # there is one: the screen as it was before this scene's first change.
-    gaps = sum(1 for (_, a), (_, b) in zip(inside, inside[1:]) if b - a >= STILL)
+    gaps = len(_gaps(inside))
     keep = KEEP
     voice = narration(out, entry["scene"])
     if voice and gaps:
         # A narration longer than the picture: the pauses grow, so each
         # result stays on screen while the voice speaks about it.
         busy = sum(
-            min(b - a, STILL)
-            for (_, a), (_, b) in zip(inside, inside[1:])
-            if b - a < STILL
+            min(b - a, STILL) for (_, a), (_, b) in pairwise(inside) if b - a < STILL
         )
         keep = min(max(KEEP, (seconds(voice) + ROOM - busy) / (gaps + 1)), LONGEST)
     clock, last, frames, bursts = 0.0, inside[0][1], [], []
@@ -275,7 +280,7 @@ def _landing(raw: Path, frames: list[list], first: int, stop: int) -> int:
     last = _small(raw, frames[max(first - 1, 0)][0])
     for index in range(first, stop + 1):
         image = _small(raw, frames[index][0])
-        changed = int((np.abs(image - last) > 28).sum())
+        changed = _changed(image, last).sum()
         last = image
         if changed > GLIDE:
             return index if frames[index][1] - start < REACH + 0.4 else first
@@ -301,14 +306,14 @@ def _camera(
         events.append({"t": at, "kind": "click"})
         before = _small(raw, frames[max(first - 1, 0)][0])
         after = _small(raw, frames[stop][0])
-        changed = np.argwhere(np.abs(after - before) > 28)
+        changed = np.argwhere(_changed(after, before))
         if len(changed) < 20:
             continue
         (y0, x0), (y1, x1) = changed.min(0), changed.max(0)
-        area = (x1 - x0) * (y1 - y0) / (480 * 270)
+        area = (x1 - x0) * (y1 - y0) / (LOOK[0] * LOOK[1])
         if area <= SMALL:
-            cx = (x0 + x1) / 2 / 480 * WIDTH
-            cy = (y0 + y1) / 2 / 270 * height
+            cx = (x0 + x1) / 2 / LOOK[0] * WIDTH
+            cy = (y0 + y1) / 2 / LOOK[1] * height
             zoom = min(ZOOM, max(1.2, 0.5 / max(area, 0.01) ** 0.5))
             cx, cy, zoom = aim(cx, cy, zoom, (WIDTH, height), SHARP)
             camera.append(
