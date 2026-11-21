@@ -53,7 +53,7 @@ card("00", kicker="Product name", title="The problem, in <em>1 line</em>.", sub=
 def first(d):
     d.goto(APP)
     button = d.page.get_by_role("button", name="New")
-    d.ring(button, "Start here", zoom=1.3)
+    d.ring(button, zoom=1.3)
     d.click(button)
     d.focus(d.page.get_by_role("dialog"), zoom=1.2)
     d.type("Example")
@@ -275,7 +275,7 @@ def package(target: str | None) -> None:
 
     skill = HERE.parent
     head = (skill / "SKILL.md").read_text().split("---")[1]
-    keys = set(re.findall(r"^([\w-]+):", head, re.M))
+    keys = set(re.findall(r"^([\w-]+):", head, re.MULTILINE))
     if keys - PORTABLE:
         sys.exit(f"SKILL.md has keys claude.ai rejects: {sorted(keys - PORTABLE)}")
     zipped = Path(target or ROOT / f"{skill.name}.zip").expanduser().resolve()

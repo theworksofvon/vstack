@@ -12,11 +12,10 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-from PIL import Image, ImageDraw, ImageFont
-
 from check import sound as _sound
 from edit import narration
-from media import ffmpeg, seconds, takes, untaken
+from media import concat, ffmpeg, seconds, takes, untaken
+from PIL import Image, ImageDraw, ImageFont
 
 FPS = 30
 RATE = 48_000
@@ -191,8 +190,8 @@ def segment(out: Path, scene: str, after_card: bool, before_card: bool) -> Path:
     lines = []
     for index, (name, at) in enumerate(manifest["frames"]):
         until = times[index + 1] if index + 1 < len(times) else manifest["end"]
-        lines.append(f"file '{frames / name}'\nduration {max(until - at, 0.001):.4f}\n")
-    lines.append(f"file '{frames / manifest['frames'][-1][0]}'\n")
+        lines.append(concat(frames / name) + f"duration {max(until - at, 0.001):.4f}\n")
+    lines.append(concat(frames / manifest["frames"][-1][0]))
     listing = frames / "list.txt"
     listing.write_text("".join(lines))
 
@@ -340,8 +339,11 @@ def build(out: Path, names: list[str] | None) -> Path:
         for index, scene in enumerate(scenes)
     ]
     listing = out / "segments" / "list.txt"
-    listing.write_text("".join(f"file '{part}'\n" for part in parts))
+    listing.write_text("".join(concat(part) for part in parts))
     final = out / ("final.mp4" if scenes == every and not missing else "preview.mp4")
+    if final.name == "preview.mp4":
+        # `check` reads final.mp4: an older one must not pass for this build.
+        (out / "final.mp4").unlink(missing_ok=True)
     joined = out / "segments" / "joined.mp4"
     run(
         [ffmpeg(), "-y", "-f", "concat", "-safe", "0", "-i", str(listing)]

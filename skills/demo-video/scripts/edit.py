@@ -13,9 +13,8 @@ import json
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
-
 from media import seconds, takes
+from PIL import Image
 
 WINDOW = 0.25
 ROOM = 0.8  # seconds of picture a scene keeps over its narration
