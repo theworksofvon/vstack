@@ -18,9 +18,8 @@ import shutil
 import sys
 from pathlib import Path
 
-import numpy as np
 import soundfile as sf
-from script import parts, words
+from script import narrate
 
 MODEL = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
 RATE = 24_000  # the sample rate of the Qwen3-TTS model
@@ -63,22 +62,15 @@ def speak(folder: Path) -> None:
     from mlx_audio.tts.utils import load_model
 
     model = load_model(MODEL)
-    rate = model.sample_rate
     heard = (HOME / "sample.txt").read_text()
-    said = words(folder)
-    for text in sorted(folder.glob("*.txt")):
-        audio = []
-        for part in parts(text.read_text(), said):
-            if isinstance(part, float):
-                audio.append(np.zeros(int(rate * part), dtype=np.float32))
-                continue
-            for result in model.generate(
-                text=part, ref_audio=str(sample), ref_text=heard, lang_code="en"
-            ):
-                audio.append(np.asarray(result.audio, dtype=np.float32))
-        wav = text.with_suffix(".wav")
-        sf.write(wav, np.concatenate(audio), rate)
-        print(f"{wav}  {sum(len(a) for a in audio) / rate:.1f} s", flush=True)
+
+    def say(line: str):
+        found = model.generate(
+            text=line, ref_audio=str(sample), ref_text=heard, lang_code="en"
+        )
+        return (result.audio for result in found)
+
+    narrate(folder, model.sample_rate, say)
 
 
 def main() -> None:
