@@ -69,8 +69,8 @@ def crop(manifest: dict, fps: int) -> str:
     at = {"cx": width / 2, "cy": height / 2, "z": 1.0}
     moves: dict[str, list[tuple[float, float, float]]] = {"cx": [], "cy": [], "z": []}
     for key in keys:
-        for name in moves:
-            moves[name].append((key["t"], key["d"], key[name] - at[name]))
+        for name, path in moves.items():
+            path.append((key["t"], key["d"], key[name] - at[name]))
             at[name] = key[name]
     zoom = f"max(1,{eased(1.0, moves['z'], bounce=True)})"
     cx = eased(width / 2 * scale, [(t, d, c * scale) for t, d, c in moves["cx"]])

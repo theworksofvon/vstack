@@ -190,7 +190,7 @@ def doctor(url: str | None) -> None:
 
         with sync_playwright() as p:
             path = Path(p.chromium.executable_path)
-        browser = line(
+        line(
             "chromium",
             path.exists(),
             str(path)
@@ -198,7 +198,7 @@ def doctor(url: str | None) -> None:
             else "not downloaded: the first `record` does it",
         )
         browser = True  # `record` downloads it, about 150 MB
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - any failure here is a "no" line
         browser = line("chromium", False, f"playwright did not load: {error}")
     reach = True
     if url:
@@ -207,7 +207,7 @@ def doctor(url: str | None) -> None:
                 line("app", True, f"{url} answered {answer.status}")
         except urllib.error.HTTPError as error:
             line("app", True, f"{url} answered {error.code}: sign in with `login`")
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - any failure here is a "no" line
             reach = line("app", False, f"{url} did not answer: {error}")
     uv = shutil.which("uv")
     line(

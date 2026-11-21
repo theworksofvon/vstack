@@ -504,7 +504,7 @@ def _import(path: Path) -> bool:
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - a scene file can raise anything
         print(f"{path.name}: not loaded, {type(error).__name__}: {error}", flush=True)
         return False
     return True
@@ -706,6 +706,6 @@ def _silent(out: Path, url: str) -> bool:
                 _renew(context, out)
             context.close()
             return inside
-    except Exception as error:  # a profile in use by another recording, a timeout
+    except Exception as error:  # noqa: BLE001 - a profile in use, a timeout
         print(f"no sign-in without a window: {str(error).splitlines()[0]}", flush=True)
         return False

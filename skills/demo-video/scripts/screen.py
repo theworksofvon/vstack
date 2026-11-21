@@ -172,10 +172,7 @@ def _start(
         r"creation_?date\s*:\s*(\S+)|creation_time\s*:\s*(\S+)", log("-i", str(video))
     )
     if stamp:
-        made = datetime.fromisoformat(
-            (stamp.group(1) or stamp.group(2)).replace("Z", "+00:00")
-        )
-        made = made.timestamp()
+        made = datetime.fromisoformat(stamp.group(1) or stamp.group(2)).timestamp()
 
         # Some recorders stamp the end, not the start: take the one the marks fit.
         def inside(s: float) -> bool:
