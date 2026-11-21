@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from media import ffmpeg, streams
+from media import ffmpeg, streams, untaken
 
 STEP = 40  # a brightness change of 40 in 255 between 2 frames is a visible jump
 LIMIT = 3  # flashes in any 1 second: the photosensitivity limit of WCAG 2.3.1
@@ -145,7 +145,12 @@ def report(video: Path) -> tuple[dict, list[str]]:
 
 
 def check(out: Path) -> None:
-    _, faults = report(out / "final.mp4")
+    missing, final = untaken(out), out / "final.mp4"
+    if missing:
+        sys.exit(f"FAIL\n- no take of {missing}: record them, then build")
+    if not final.exists():
+        sys.exit("FAIL\n- no final.mp4: run build")
+    _, faults = report(final)
     if faults:
         sys.exit("FAIL\n" + "\n".join(f"- {fault}" for fault in faults))
     print("PASS")
