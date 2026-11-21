@@ -9,7 +9,7 @@ import os
 import subprocess
 from pathlib import Path
 
-import build
+import camera
 import check
 import edit
 import pytest
@@ -61,7 +61,7 @@ MANIFESTS = {
 
 @pytest.mark.parametrize("name", MANIFESTS)
 def test_the_camera_filter_is_unchanged(name):
-    same(f"camera_{name}", build.camera_filter(MANIFESTS[name]))
+    same(f"camera_{name}", camera.crop(MANIFESTS[name], 30))
 
 
 def test_the_edit_of_a_recorded_take_is_unchanged(tmp_path):

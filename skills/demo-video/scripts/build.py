@@ -7,6 +7,7 @@ mixed under the narration.
 
 from pathlib import Path
 
+import camera
 import numpy as np
 import soundfile as sf
 from media import LOUDNESS, concat, ffmpeg, run, seconds, sound
@@ -30,64 +31,6 @@ def font(size: int):
         if Path(path).exists():
             return ImageFont.truetype(path, size, index=index)
     return ImageFont.load_default(size)
-
-
-# --- camera ---
-
-
-# The camera is a spring: it starts slowly, arrives with a soft tail, and when a
-# new target comes mid-move it bends towards it with no jerk. A spring is linear,
-# so its path through many targets is the sum of 1 step response per change.
-SETTLE = 5.0  # stiffness x seconds: the spring is 96% of the way after a note's `d`
-BOUNCE = 0.8  # damping of a zoom-in: below 1 it passes the target by 1.5%, then returns
-
-
-def spring(at: float, length: float, change: float, damping: float) -> str:
-    """An ffmpeg term: the move of a spring that starts at `at` towards `change`."""
-    w = SETTLE / max(length, 0.05)
-    t = f"st(0,max(it-{at:.3f},0))"
-    if damping >= 1:
-        return f"{change:.4f}*({t}*0+1-(1+{w:.4f}*ld(0))*exp(-{w:.4f}*ld(0)))"
-    wd = w * (1 - damping**2) ** 0.5
-    ratio = damping / (1 - damping**2) ** 0.5
-    return (
-        f"{change:.4f}*({t}*0+1-exp(-{damping * w:.4f}*ld(0))"
-        f"*(cos({wd:.4f}*ld(0))+{ratio:.4f}*sin({wd:.4f}*ld(0))))"
-    )
-
-
-def eased(
-    start: float, moves: list[tuple[float, float, float]], bounce: bool = False
-) -> str:
-    """An ffmpeg expression: `start`, plus 1 spring per (time, seconds, change)."""
-    terms = [f"{start:.3f}"]
-    for at, length, change in moves:
-        if abs(change) < 1e-6:
-            continue
-        damping = BOUNCE if bounce and change > 0 else 1.0
-        terms.append(spring(at, length, change, damping))
-    return "+".join(terms)
-
-
-def camera_filter(manifest: dict) -> str:
-    keys = manifest.get("camera") or []
-    if not keys:
-        return "scale=1920:1080:flags=lanczos"
-    width, height = manifest["size"]
-    scale = manifest.get("scale", 2)  # device pixels per page pixel
-    at = {"cx": width / 2, "cy": height / 2, "z": 1.0}
-    moves: dict[str, list[tuple[float, float, float]]] = {"cx": [], "cy": [], "z": []}
-    for key in keys:
-        for name in moves:
-            moves[name].append((key["t"], key["d"], key[name] - at[name]))
-            at[name] = key[name]
-    zoom = f"max(1,{eased(1.0, moves['z'], bounce=True)})"
-    cx = eased(width / 2 * scale, [(t, d, c * scale) for t, d, c in moves["cx"]])
-    cy = eased(height / 2 * scale, [(t, d, c * scale) for t, d, c in moves["cy"]])
-    return (
-        f"zoompan=z='{zoom}':x='clip(({cx})-iw/zoom/2,0,iw-iw/zoom)'"
-        f":y='clip(({cy})-ih/zoom/2,0,ih-ih/zoom)':d=1:s=1920x1080:fps={FPS}"
-    )
 
 
 # --- caption ---
@@ -190,7 +133,7 @@ def segment(out: Path, scene: str, after_card: bool, before_card: bool) -> Path:
         total,
     )
 
-    video = f"[0:v]fps={FPS},{camera_filter(manifest)},tpad=stop_mode=clone:stop_duration={max(total - picture, 0) + 0.5:.3f}"
+    video = f"[0:v]fps={FPS},{camera.crop(manifest, FPS)},tpad=stop_mode=clone:stop_duration={max(total - picture, 0) + 0.5:.3f}"
     inputs = [
         "-f",
         "concat",

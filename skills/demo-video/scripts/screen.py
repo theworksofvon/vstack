@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from camera import aim
 from media import log, pts, seconds
 from PIL import Image
 from work import ROOM, narration, retire
@@ -309,9 +310,7 @@ def _camera(
             cx = (x0 + x1) / 2 / 480 * WIDTH
             cy = (y0 + y1) / 2 / 270 * height
             zoom = min(ZOOM, max(1.2, 0.5 / max(area, 0.01) ** 0.5))
-            half_w, half_h = WIDTH / zoom / 2, height / zoom / 2
-            cx = min(max(cx, half_w), WIDTH - half_w)
-            cy = min(max(cy, half_h), height - half_h)
+            cx, cy, zoom = aim(cx, cy, zoom, (WIDTH, height), SHARP)
             camera.append(
                 {"t": max(at - 0.3, 0), "cx": cx, "cy": cy, "z": zoom, "d": 0.8}
             )

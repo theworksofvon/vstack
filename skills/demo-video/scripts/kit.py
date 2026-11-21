@@ -20,6 +20,7 @@ import sys
 import time
 from pathlib import Path
 
+from camera import aim
 from playwright.sync_api import Locator, Page, sync_playwright
 from work import profile, retire
 
@@ -195,7 +196,6 @@ class Demo:
         self.fast = False
         # The camera of the build step: its centre in page pixels, and its zoom.
         self.cam = (WIDTH / 2, HEIGHT / 2, 1.0)
-        self.max_zoom = WIDTH * rec.scale / 1920
 
     # --- pacing ---
 
@@ -241,10 +241,7 @@ class Demo:
     # --- camera: notes for the build step, the page does not change ---
 
     def _camera(self, cx: float, cy: float, zoom: float, seconds: float) -> None:
-        zoom = min(zoom, self.max_zoom)
-        half_w, half_h = WIDTH / zoom / 2, HEIGHT / zoom / 2
-        cx = min(max(cx, half_w), WIDTH - half_w)
-        cy = min(max(cy, half_h), HEIGHT - half_h)
+        cx, cy, zoom = aim(cx, cy, zoom, (WIDTH, HEIGHT), self.rec.scale)
         if (cx, cy, zoom) == self.cam:
             return
         self.cam = (cx, cy, zoom)
