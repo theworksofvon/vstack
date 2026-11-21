@@ -4,7 +4,20 @@ A recording never scales the page. It writes camera notes (`t`, `cx`, `cy`
 in page pixels, `z` zoom, `d` seconds), and the build crops the frames.
 """
 
+from dataclasses import dataclass
+
 OUTPUT = (1920, 1080)  # the size of the finished video
+
+
+@dataclass(frozen=True)
+class Note:
+    """At video second `t`, move to centre (`cx`, `cy`) and zoom `z` in `d` seconds."""
+
+    t: float
+    cx: float
+    cy: float
+    z: float
+    d: float
 
 
 def aim(
@@ -59,19 +72,20 @@ def eased(
     return "+".join(terms)
 
 
-def crop(manifest: dict, fps: int) -> str:
-    """The ffmpeg filter that moves the crop along the camera notes of a take."""
-    keys = manifest.get("camera") or []
-    if not keys:
+def crop(notes: list[Note], size: list[int], scale: float, fps: int) -> str:
+    """The ffmpeg filter that moves the crop along the camera notes of a take.
+
+    `size` is the page in page pixels; `scale` is frame pixels per page pixel.
+    """
+    if not notes:
         return f"scale={OUTPUT[0]}:{OUTPUT[1]}:flags=lanczos"
-    width, height = manifest["size"]
-    scale = manifest.get("scale", 2)  # device pixels per page pixel
+    width, height = size
     at = {"cx": width / 2, "cy": height / 2, "z": 1.0}
     moves: dict[str, list[tuple[float, float, float]]] = {"cx": [], "cy": [], "z": []}
-    for key in keys:
+    for note in notes:
         for name, path in moves.items():
-            path.append((key["t"], key["d"], key[name] - at[name]))
-            at[name] = key[name]
+            path.append((note.t, note.d, getattr(note, name) - at[name]))
+            at[name] = getattr(note, name)
     zoom = f"max(1,{eased(1.0, moves['z'], bounce=True)})"
     cx = eased(width / 2 * scale, [(t, d, c * scale) for t, d, c in moves["cx"]])
     cy = eased(height / 2 * scale, [(t, d, c * scale) for t, d, c in moves["cy"]])

@@ -22,9 +22,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from camera import aim
+from camera import Note, aim
 from playwright.sync_api import Locator, Page, sync_playwright
-from work import profile, retire
+from work import Take, profile, retire
 
 HERE = Path(__file__).parent
 WIDTH, HEIGHT = 1600, 900
@@ -103,7 +103,7 @@ class Recorder:
     def _reset(self) -> None:
         self.frames: list[tuple[str, float]] = []
         self.events: list[dict] = []
-        self.camera: list[dict] = []
+        self.camera: list[Note] = []
         self.fast: list[list[float]] = []
         self.caption: list[str] | None = None
         self.is_card = False
@@ -168,21 +168,17 @@ class Recorder:
         if not keep:
             self.abandon()
             return
-        (self.dir / "manifest.json").write_text(
-            json.dumps(
-                {
-                    "frames": self.frames,
-                    "end": self.clock,
-                    "events": self.events,
-                    "camera": self.camera,
-                    "fast": self.fast,
-                    "caption": self.caption,
-                    "card": self.is_card,
-                    "size": [WIDTH, HEIGHT],
-                    "scale": self.scale,
-                }
-            )
-        )
+        Take(
+            frames=self.frames,
+            end=self.clock,
+            events=self.events,
+            camera=self.camera,
+            fast=self.fast,
+            caption=self.caption,
+            card=self.is_card,
+            size=[WIDTH, HEIGHT],
+            scale=self.scale,
+        ).save(self.dir / "manifest.json")
         print(
             f"{self.name}: {len(self.frames)} frames, {self.clock:.1f} s, "
             f"{len(self.events)} sounds, {len(self.camera)} camera moves",
@@ -262,9 +258,7 @@ class Demo:
         if (cx, cy, zoom) == self.cam:
             return
         self.cam = (cx, cy, zoom)
-        self.rec.camera.append(
-            {"t": self.rec.now(), "cx": cx, "cy": cy, "z": zoom, "d": seconds}
-        )
+        self.rec.camera.append(Note(self.rec.now(), cx, cy, zoom, seconds))
 
     def focus(
         self,

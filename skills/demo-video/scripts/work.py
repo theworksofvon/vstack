@@ -7,14 +7,16 @@
   <slug>/frames-old/              the takes that a newer take replaced
   profiles/<host>/                the browser sign-in of 1 app, for every demo of it
 
-This file needs the standard library only, as media.py does.
+This file needs the standard library only, as media.py and camera.py do.
 """
 
 import json
 import os
 import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from camera import Note
 from media import seconds
 
 ROOT = (
@@ -24,6 +26,36 @@ ROOT = (
 )
 ROOM = 0.8  # seconds of picture a scene keeps over its narration
 SOUNDS = {".wav", ".aiff", ".mp3", ".m4a"}
+
+
+@dataclass(frozen=True)
+class Take:
+    """1 recorded scene, as `frames/NN/manifest.json` and the edit's `cut.json` hold it.
+
+    Times are video seconds. A take from `record` has no `source` in its file.
+    """
+
+    frames: list[list]  # [file name, time], 1 per frame
+    end: float
+    events: list[dict]  # {"t", "kind"}: a click or key sound
+    camera: list[Note]
+    fast: list[list[float]]  # [start, end] of each fast-forward span
+    caption: list[str] | None  # [step, text]
+    card: bool
+    size: list[int]  # the page, in page pixels
+    scale: float  # frame pixels per page pixel
+    source: str = "record"
+
+    @classmethod
+    def load(cls, path: Path) -> "Take":
+        data = json.loads(path.read_text())
+        return cls(**{**data, "camera": [Note(**n) for n in data["camera"]]})
+
+    def save(self, path: Path) -> None:
+        data = asdict(self)
+        if self.source == "record":
+            del data["source"]
+        path.write_text(json.dumps(data))
 
 
 def folder(slug: str) -> Path:
@@ -67,10 +99,10 @@ def retire(out: Path, name: str) -> None:
     take.rename(old)
 
 
-def manifest(take: Path) -> dict:
+def manifest(take: Path) -> Take:
     """The take as the edit left it, or as recorded when there was no edit."""
     cut = take / "cut.json"
-    return json.loads((cut if cut.exists() else take / "manifest.json").read_text())
+    return Take.load(cut if cut.exists() else take / "manifest.json")
 
 
 def narration(out: Path, scene: str) -> Path | None:

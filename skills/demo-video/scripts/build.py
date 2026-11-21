@@ -12,8 +12,7 @@ import numpy as np
 import soundfile as sf
 from media import LOUDNESS, concat, ffmpeg, run, seconds, sound
 from PIL import Image, ImageDraw, ImageFont
-from work import manifest as load
-from work import narration, takes, untaken
+from work import manifest, narration, takes, untaken
 
 FPS = 30
 RATE = 48_000
@@ -109,17 +108,17 @@ def sound_track(path: Path, seed: int, events: list[dict], total: float) -> Path
 
 def segment(out: Path, scene: str, after_card: bool, before_card: bool) -> Path:
     frames, parts = out / "frames" / scene, out / "segments"
-    manifest = load(frames)
-    times = [t for _, t in manifest["frames"]]
+    take = manifest(frames)
+    times = [t for _, t in take.frames]
     lines = []
-    for index, (name, at) in enumerate(manifest["frames"]):
-        until = times[index + 1] if index + 1 < len(times) else manifest["end"]
+    for index, (name, at) in enumerate(take.frames):
+        until = times[index + 1] if index + 1 < len(times) else take.end
         lines.append(concat(frames / name) + f"duration {max(until - at, 0.001):.4f}\n")
-    lines.append(concat(frames / manifest["frames"][-1][0]))
+    lines.append(concat(frames / take.frames[-1][0]))
     listing = frames / "list.txt"
     listing.write_text("".join(lines))
 
-    picture = manifest["end"] - times[0]
+    picture = take.end - times[0]
     voice = narration(out, scene)
     spoken = seconds(voice) if voice else 0.0
     total = max(picture, LEAD + spoken + TAIL) if voice else picture
@@ -129,11 +128,11 @@ def segment(out: Path, scene: str, after_card: bool, before_card: bool) -> Path:
     sfx = sound_track(
         parts / f"{scene}.sfx.wav",
         len(scene) + sum(map(ord, scene)),
-        manifest.get("events") or [],
+        take.events,
         total,
     )
 
-    video = f"[0:v]fps={FPS},{camera.crop(manifest, FPS)},tpad=stop_mode=clone:stop_duration={max(total - picture, 0) + 0.5:.3f}"
+    video = f"[0:v]fps={FPS},{camera.crop(take.camera, take.size, take.scale, FPS)},tpad=stop_mode=clone:stop_duration={max(total - picture, 0) + 0.5:.3f}"
     inputs = [
         "-f",
         "concat",
@@ -146,13 +145,13 @@ def segment(out: Path, scene: str, after_card: bool, before_card: bool) -> Path:
         "-i",
         str(sfx),
     ]
-    is_card = bool(manifest.get("card"))
+    is_card = take.card
     # Scene to scene is a straight cut: a dip to black between 2 bright pages is a flash.
     edges = (",fade=t=in:st=0:d=0.5" if is_card or after_card else "") + (
         f",fade=t=out:st={total - 0.5:.3f}:d=0.5" if is_card or before_card else ""
     )
-    if manifest.get("caption") and not is_card:
-        image = caption_image(parts / f"{scene}.caption.png", *manifest["caption"])
+    if take.caption and not is_card:
+        image = caption_image(parts / f"{scene}.caption.png", *take.caption)
         inputs += ["-loop", "1", "-i", str(image)]
         video += (
             f"{edges}[base];"
@@ -184,7 +183,7 @@ def segment(out: Path, scene: str, after_card: bool, before_card: bool) -> Path:
     )
     print(
         f"{scene}: picture {picture:.1f} s, narration {spoken:.1f} s, segment {total:.1f} s, "
-        f"{len(manifest.get('events') or [])} sounds, {len(manifest.get('camera') or [])} camera moves",
+        f"{len(take.events)} sounds, {len(take.camera)} camera moves",
         flush=True,
     )
     return path
@@ -252,7 +251,7 @@ def build(out: Path, names: list[str] | None) -> Path:
     if missing:
         print(f"no take of {missing}: this build is a preview", flush=True)
     scenes = names or every
-    cards = {name for name in scenes if load(out / "frames" / name).get("card")}
+    cards = {name for name in scenes if manifest(out / "frames" / name).card}
     parts = [
         segment(
             out,
