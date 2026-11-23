@@ -3,6 +3,7 @@ import time
 
 import kit
 import pytest
+import work
 
 GOOD = 'from kit import scene\n\n@scene("01")\ndef first(d):\n    pass\n'
 
@@ -28,7 +29,7 @@ def test_a_full_record_stops_on_a_broken_scene_file(out):
 
 @pytest.fixture
 def signed_in(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setattr(work, "ROOT", tmp_path / "cache")
     (tmp_path / "login.txt").write_text("http://localhost:3000/")
     (tmp_path / "state.json").write_text("{}")
     renewals = []
@@ -61,7 +62,7 @@ def test_a_saved_recording_does_not_count_as_a_renewal(tmp_path, signed_in):
 
 
 def test_record_stops_when_the_sign_in_ran_out(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setattr(work, "ROOT", tmp_path / "cache")
     (tmp_path / "login.txt").write_text("http://localhost:3000/")
     monkeypatch.setattr(kit, "_silent", lambda out, url: False)
 

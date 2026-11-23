@@ -15,15 +15,14 @@ the user who reads PASSAGE aloud, in a quiet room.
 
 import argparse
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
 import soundfile as sf
-from script import parts, words
+from script import narrate
 
 MODEL = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+RATE = 24_000  # the sample rate of the Qwen3-TTS model
 HOME = Path.home() / ".config" / "demo-video" / "voice"
 PASSAGE = (
     "Hi, this is my voice for the demo videos. I open the app, I click the "
@@ -34,28 +33,23 @@ PASSAGE = (
 def keep(recording: Path, text: str) -> None:
     """Saves the sample as 24 kHz mono, without the silence at the ends."""
     HOME.mkdir(parents=True, exist_ok=True)
-    from media import ffmpeg
+    from media import ffmpeg, run
 
     sample = HOME / "sample.wav"
     edge = "silenceremove=start_periods=1:start_threshold=-45dB"
-    subprocess.run(
-        [
-            ffmpeg(),
-            "-v",
-            "error",
-            "-y",
-            "-i",
-            str(recording),
-            "-ac",
-            "1",
-            "-ar",
-            "24000",
+    run(
+        [ffmpeg(), "-v", "error", "-y", "-i", str(recording), "-ac", "1", "-ar"]
+        + [
+            str(RATE),
+            "-af",
+            f"{edge},areverse,{edge},areverse",
+            "-t",
+            "20",
+            str(sample),
         ]
-        + ["-af", f"{edge},areverse,{edge},areverse", "-t", "20", str(sample)],
-        check=True,
     )
     (HOME / "sample.txt").write_text(text)
-    length = len(sf.read(sample)[0]) / 24000
+    length = len(sf.read(sample)[0]) / RATE
     if length < 6:
         sys.exit(f"the sample is {length:.1f} s: record 10 to 20 s of speech")
     print(f"voice saved: {sample}, {length:.1f} s")
@@ -68,22 +62,15 @@ def speak(folder: Path) -> None:
     from mlx_audio.tts.utils import load_model
 
     model = load_model(MODEL)
-    rate = model.sample_rate
     heard = (HOME / "sample.txt").read_text()
-    said = words(folder)
-    for text in sorted(folder.glob("*.txt")):
-        audio = []
-        for part in parts(text.read_text(), said):
-            if isinstance(part, float):
-                audio.append(np.zeros(int(rate * part), dtype=np.float32))
-                continue
-            for result in model.generate(
-                text=part, ref_audio=str(sample), ref_text=heard, lang_code="en"
-            ):
-                audio.append(np.asarray(result.audio, dtype=np.float32))
-        wav = text.with_suffix(".wav")
-        sf.write(wav, np.concatenate(audio), rate)
-        print(f"{wav}  {sum(len(a) for a in audio) / rate:.1f} s", flush=True)
+
+    def say(line: str):
+        found = model.generate(
+            text=line, ref_audio=str(sample), ref_text=heard, lang_code="en"
+        )
+        return (result.audio for result in found)
+
+    narrate(folder, model.sample_rate, say)
 
 
 def main() -> None:
