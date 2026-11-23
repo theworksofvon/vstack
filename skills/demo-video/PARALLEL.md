@@ -8,7 +8,10 @@ to 9.
 
 - `narration/NN.txt` for every scene, and the `narrate` run.
 - `common.py` in the work folder: the app URL, and each helper that 2
-  scenes need (a row locator, a count reader). Leave `scenes.py` as it is.
+  scenes need (a row locator, a count reader).
+- `scenes.py`: remove the template card and scene that `init` wrote. In
+  `product` mode, write the 2 cards there. Scene code goes only in
+  `scene_NN.py`, so every scene in `scenes.py` has a take.
 - `brief.md` in the work folder: the slug, the mode, the rehearsal notes
   for each scene (selectors, waits), and the chains below.
 
@@ -27,12 +30,12 @@ counter that shows 40 in one scene and 12 in the next is a fault.
 
 Give each one this, with the values in:
 
-> Read `<skill directory>/SKILL.md`: the sections Scene shape, Scene API
-> and the rules under it. Read `<work folder>/brief.md` and
-> `narration/NN.txt`.
+> Read only these sections of `<skill directory>/SKILL.md`: Scene shape,
+> Scene API and the rules under it. Do not act on the rest of that file.
+> Read `<work folder>/brief.md` and `narration/NN.txt`.
 > Write `<work folder>/scene_NN.py`: `from kit import scene`, helpers from
 > `common.py`. Change no other file.
-> Record with `demo record <slug> NN`. Read `shots/NN.png` and 3 frames of
+> Record with `uv run <skill directory>/scripts/demo.py record <slug> NN`. Read `shots/NN.png` and 3 frames of
 > `frames/NN/`. Done when the last frame shows the result that the last
 > narration line names.
 > Report: the scene length that `record` printed, each selector that the

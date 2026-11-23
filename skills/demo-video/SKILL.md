@@ -5,28 +5,37 @@ compatibility: Claude Code, in a terminal or the desktop app's Code tab, records
 ---
 
 Every command is `demo <command>`: `uv run <this skill's directory>/scripts/demo.py`,
-or `python <this skill's directory>/scripts/demo.py` where there is no `uv`
-(first `pip install numpy soundfile pillow imageio-ffmpeg`). `demo --help`
-lists the commands.
+or `python <this skill's directory>/scripts/demo.py` where there is no `uv`.
+`demo --help` lists the commands.
 
 The user can be someone who does not code, in the desktop app's Code tab.
-On a Mac or Linux machine without `uv`, tell them in 1 sentence that you
-will install a free tool that runs the video scripts, then run
-`curl -LsSf https://astral.sh/uv/install.sh | sh` and use
-`~/.local/bin/uv`. The first run downloads Chromium and the voice model
-by itself; say that it takes a few minutes. The work folder is
+In Claude Code on a Mac or Linux machine without `uv`, tell them in 1
+sentence that you will install a free tool that runs the video scripts,
+then run `curl -LsSf https://astral.sh/uv/install.sh | sh` and use
+`~/.local/bin/uv`. In a Cowork or claude.ai sandbox, run
+`pip install numpy soundfile pillow imageio-ffmpeg` and use the `python`
+form; Claude Code without `uv` also needs `playwright` in that line. The
+first run downloads Chromium and the voice model by itself; say that it
+takes a few minutes. The work folder is
 `${XDG_CACHE_HOME:-$HOME/.cache}/vstack/demo-video/<slug>/`, never the repo.
 
 ## Path
 
-Run `demo doctor <app url>` first. Its last line names the path:
+A native app always takes the screen path. For a web app, run
+`demo doctor <app url>` first. Its last line names the path:
 
 - `path: record`: this machine drives a browser on the app. Follow the
   steps below.
+- `path: record, once the app answers`: start the app (step 2), then
+  follow the steps below.
 - `path: screen`: the browser here cannot reach the user's app (a claude.ai
-  or Cowork sandbox), or the app is a native app. Read
-  [`SCREEN.md`](SCREEN.md) and follow it in place of the steps below; it
-  uses the Mode, Narration and Voice sections of this file.
+  or Cowork sandbox). Read [`SCREEN.md`](SCREEN.md) and follow it in place
+  of the steps below; it uses the Mode, Narration and Voice sections of
+  this file.
+- `path: none`: tell the user the fix that `doctor` printed, and stop.
+
+For each `no` line of `ffmpeg`, `chromium` or `app`, tell the user in 1
+line what the video loses and the fix that `doctor` printed, then go on.
 
 ## Mode
 
@@ -49,48 +58,50 @@ read it when you set a length or a pace.
 2. **Get the app running and signed in.** Start it the way the project
    says. Services the app needs but the machine lacks get a local stand-in
    outside the repo; say so in the final report. If the app has a sign-in,
-   run `demo login <slug> <url>` in the background. It first tries the
-   saved sign-in of that app without a window. When it opens a window,
-   tell the user: find the window titled **SIGN IN HERE (demo-video)**,
-   not their own Chrome; sign in there; click **Accept** if an "Authorize
-   App" screen shows. It prints each page the window reaches, so read its
+   run `demo login <slug> <url>` in the background. Tell the user that the
+   sign-in is kept in the cache folder, in `profiles/<host>` and in the
+   work folder's `state.json`, and that deleting those removes it. `login`
+   first tries the saved sign-in of that app without a window. When it
+   opens a window, tell the user: find the window titled **SIGN IN HERE
+   (demo-video)**, not their own Chrome; sign in there; click **Accept** if
+   an "Authorize App" screen shows. It prints each page the window reaches, so read its
    output to say where a sign-in stopped.
    Done when a plain page load of the app shows data.
 3. **Narration first.** Write `narration/NN.txt` per scene and card by
-   [the narration rules](#narration). Run `demo narrate <slug>`; it prints
-   each length. The picture is timed to these lengths.
+   [the narration rules](#narration). Ask which voice the user wants
+   ([Voice](#voice)). Unless the user reads it, run `demo narrate <slug>`;
+   it prints each length. The picture is timed to these lengths.
 4. **Rehearse by hand.** Before any scene code, walk the full flow once
    with a browser tool or a headed run, and write down for each scene the
    selector of each element and how long each wait is. Seed or reset data
    so a second take starts from the same state. A scene written from a
    guess fails mid-take and costs a full re-record.
+   When you can start subagents and the demo has 3 scenes or more, read
+   [`PARALLEL.md`](PARALLEL.md) now. It replaces steps 5 and 6.
 5. **Write `scenes.py`** from the template `init` made, using
    [the scene API](#scene-api), each scene in [the scene shape](#scene-shape).
    One scene per narration file, same number. A scene can also live in its
    own `scene_NN.py` beside `scenes.py`; `record` loads both.
-   After the edit step, make each line start when its beat starts: add a
-   sentence before a line that starts too early, and cut words before one
-   that starts late; `edit` prints the lengths, and `frames/NN/cut.json` has the
-   click and camera times.
 6. **Record.** `demo record <slug>`, or `demo record <slug> 03` for 1
    scene. After each scene, read `shots/last.png` and 3 frames from
    `frames/NN/`; a scene is done when its last frame shows the state the
    narration names.
 7. **Edit.** `demo edit <slug> --mode <mode>`. It prints each scene's
-   length against its narration.
+   length against its narration, and `frames/NN/cut.json` has the click
+   and camera times. Make each line start when its beat starts: add a
+   sentence before a line that starts too early, and cut words before one
+   that starts late. Then run `narrate` and `edit` again. Done when each
+   scene's length matches its narration.
 8. **Build and check.** `demo build <slug>`, then `demo check <slug>`.
-   Check must print `PASS`: it fails on more than 3 flashes in 1 second, on
-   a cut through black, and on sound and picture of different length. Then
-   read the `final.sheet.jpg` it wrote; every scene must show what its
-   narration says. In `demo` mode the `sound` line must show pauses at a
-   third of the length or less; above that, add narration. Fix and rebuild
-   until all 3 hold.
+   Check must print `PASS`; on `FAIL`, it lists each fault. Then read the
+   `final.sheet.jpg` it wrote; every scene must show what its narration
+   says. In `demo` mode the `sound` line must show pauses at a third of
+   the length or less; above that, add narration. Fix and rebuild until all
+   3 hold.
 9. **Report** the path of `final.mp4`, its length, the mode, the narrator
    used, what was a stand-in, and anything visible that the user did not
-   ask for (a real name, an error row).
-
-When you can start subagents and the demo has 3 scenes or more, read
-[`PARALLEL.md`](PARALLEL.md) after step 4: it gives each scene to 1 agent.
+   ask for (a real name, an error row). When a model spoke the narration,
+   say that it is an AI voice.
 
 ## Scene shape
 
@@ -180,15 +191,15 @@ going, and each sentence leads to the next.
   recording.
 - **Use spoken words:** contractions, "we" and "you", "Now", "And there it
   is". 1 idea per sentence, 12 words at most.
-- **Read it aloud once.** Rewrite each place where the tongue trips or a
-  breath runs out.
+- **Check that each sentence fits in 1 breath.**
 - **An empty line is a 0.5 s breath.** `[pause 1.0]` is for a beat that no
   true sentence can fill; 1 s is the most.
 - **Too long? Cut words.** Keep `--speed` at 1.0; a faster voice sounds
   pressed.
-- **Words the voice says wrong** go in `narration/pronounce.json`, as
-  `{"MI": "M I", "PFS": "P F S"}`. Listen for product names, short forms and
-  place names, then run `narrate` again.
+- **Words the voice can say wrong:** before the first `narrate`, list each
+  product name, short form and place name in `narration/pronounce.json`,
+  as `{"MI": "M I", "PFS": "P F S"}`. After it, ask the user to play 1 file
+  and name any word that sounds wrong, then run `narrate` again.
 
 The same beat, flat and then spoken:
 
@@ -215,9 +226,8 @@ user which voice they want before the first `narrate`:
 | the user's own, cloned             | 1 time: `demo clone record` films 15 s from the microphone while the user reads the passage it prints, or `demo clone <file>` takes a recording of that passage. Then `--voice me` | Claude Code on a Mac with Apple silicon: Qwen3-TTS, local, free, no account; the first run downloads 2 GB |
 | the user reads it                  | the user records each scene's text; save each take as `narration/NN.m4a` (or `.wav`, `.mp3`), and skip `narrate`                                                                   | everywhere                                                                                                |
 
-A cloned voice is the user's own only: clone no one else's. Say in the
-final report that the narration is an AI voice. Tone comes from the voice
-and the text; neither model has a control for emotion.
+A cloned voice is the user's own only: clone no one else's. Tone comes
+from the voice and the text; neither model has a control for emotion.
 
 Sound finish, done by `build`: the level is set to -18 LUFS. A file named
 `music.mp3`, `music.wav` or `music.m4a` in the work folder plays under the
@@ -231,5 +241,7 @@ gives it.
 camera entry to move, retime or remove a zoom, then run `edit`, `build` and
 `check` again. Old takes move to `frames-old/`.
 
-`demo selftest` runs the full flow on a built-in page; run it first when a
-command fails, to tell a tool fault from a scene fault.
+## When a command fails
+
+`demo selftest` runs the full flow on a built-in page. Run it first, to
+tell a tool fault from a scene fault.
