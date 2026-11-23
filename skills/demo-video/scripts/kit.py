@@ -18,10 +18,13 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
-from media import retire
+from camera import Note, aim
 from playwright.sync_api import Locator, Page, sync_playwright
+from work import Take, profile, retire
 
 HERE = Path(__file__).parent
 WIDTH, HEIGHT = 1600, 900
@@ -29,7 +32,29 @@ WIDTH, HEIGHT = 1600, 900
 # the start of every scene agent in 1 parallel round.
 FRESH = 300
 
-SCENES: dict[str, dict] = {}
+SIGN_IN = 20 * 60  # seconds the sign-in window waits for the user
+# How far the pointer goes from the centre of a zoomed view, as a part of its
+# half width and half height, before the camera pans after it.
+EDGE = (0.62, 0.55)
+# An element that still moves after 25 looks, 110 ms apart (2.75 s), is used as is.
+SETTLE_TRIES, SETTLE_MS = 25, 110
+
+
+@dataclass(frozen=True)
+class Scene:
+    run: Callable[["Demo"], None]
+    caption: str | None
+
+
+@dataclass(frozen=True)
+class Card:
+    title: str
+    sub: str
+    kicker: str
+    seconds: float
+
+
+SCENES: dict[str, Scene | Card] = {}
 
 
 class Skip(Exception):
@@ -43,11 +68,11 @@ def skip(reason: str) -> None:
     raise Skip(reason)
 
 
-def scene(name: str, caption: str | None = None, step: str | None = None):
+def scene(name: str, caption: str | None = None):
     """Registers a scene. `caption` shows for the first seconds of the scene."""
 
     def register(run):
-        SCENES[name] = {"run": run, "caption": caption, "step": step}
+        SCENES[name] = Scene(run, caption)
         return run
 
     return register
@@ -57,9 +82,7 @@ def card(
     name: str, title: str, sub: str = "", kicker: str = "", seconds: float = 6.0
 ) -> None:
     """Registers a title card. `title` can hold <em> for the accent colour."""
-    SCENES[name] = {
-        "card": {"title": title, "sub": sub, "kicker": kicker, "seconds": seconds}
-    }
+    SCENES[name] = Card(title, sub, kicker, seconds)
 
 
 class Recorder:
@@ -85,7 +108,7 @@ class Recorder:
     def _reset(self) -> None:
         self.frames: list[tuple[str, float]] = []
         self.events: list[dict] = []
-        self.camera: list[dict] = []
+        self.camera: list[Note] = []
         self.fast: list[list[float]] = []
         self.caption: list[str] | None = None
         self.is_card = False
@@ -150,21 +173,17 @@ class Recorder:
         if not keep:
             self.abandon()
             return
-        (self.dir / "manifest.json").write_text(
-            json.dumps(
-                {
-                    "frames": self.frames,
-                    "end": self.clock,
-                    "events": self.events,
-                    "camera": self.camera,
-                    "fast": self.fast,
-                    "caption": self.caption,
-                    "card": self.is_card,
-                    "size": [WIDTH, HEIGHT],
-                    "scale": self.scale,
-                }
-            )
-        )
+        Take(
+            frames=self.frames,
+            end=self.clock,
+            events=self.events,
+            camera=self.camera,
+            fast=self.fast,
+            caption=self.caption,
+            card=self.is_card,
+            size=[WIDTH, HEIGHT],
+            scale=self.scale,
+        ).save(self.dir / "manifest.json")
         print(
             f"{self.name}: {len(self.frames)} frames, {self.clock:.1f} s, "
             f"{len(self.events)} sounds, {len(self.camera)} camera moves",
@@ -195,7 +214,6 @@ class Demo:
         self.fast = False
         # The camera of the build step: its centre in page pixels, and its zoom.
         self.cam = (WIDTH / 2, HEIGHT / 2, 1.0)
-        self.max_zoom = WIDTH * rec.scale / 1920
 
     # --- pacing ---
 
@@ -241,16 +259,11 @@ class Demo:
     # --- camera: notes for the build step, the page does not change ---
 
     def _camera(self, cx: float, cy: float, zoom: float, seconds: float) -> None:
-        zoom = min(zoom, self.max_zoom)
-        half_w, half_h = WIDTH / zoom / 2, HEIGHT / zoom / 2
-        cx = min(max(cx, half_w), WIDTH - half_w)
-        cy = min(max(cy, half_h), HEIGHT - half_h)
+        cx, cy, zoom = aim(cx, cy, zoom, (WIDTH, HEIGHT), self.rec.scale)
         if (cx, cy, zoom) == self.cam:
             return
         self.cam = (cx, cy, zoom)
-        self.rec.camera.append(
-            {"t": self.rec.now(), "cx": cx, "cy": cy, "z": zoom, "d": seconds}
-        )
+        self.rec.camera.append(Note(self.rec.now(), cx, cy, zoom, seconds))
 
     def focus(
         self,
@@ -282,7 +295,7 @@ class Demo:
         if zoom == 1 or self.fast:
             return
         half_w, half_h = WIDTH / zoom / 2, HEIGHT / zoom / 2
-        if abs(x - cx) > half_w * 0.62 or abs(y - cy) > half_h * 0.55:
+        if abs(x - cx) > half_w * EDGE[0] or abs(y - cy) > half_h * EDGE[1]:
             self._camera(x, y, zoom, 0.7)
 
     # --- overlay ---
@@ -351,7 +364,7 @@ class Demo:
     def settle(self, target: Locator) -> None:
         """Waits until `target` stops moving: a scroll, or a panel that opens."""
         last = None
-        for _ in range(25):
+        for _ in range(SETTLE_TRIES):
             box = target.bounding_box()
             if (
                 box
@@ -361,7 +374,7 @@ class Demo:
             ):
                 return
             last = box
-            self.page.wait_for_timeout(110)
+            self.page.wait_for_timeout(SETTLE_MS)
 
     def point(self, target: Locator, ms: int = 600, dx: float = 0.5, dy: float = 0.5):
         """Moves the drawn cursor to `target`."""
@@ -403,20 +416,20 @@ class Demo:
         self.page.screenshot(path=str(self.rec.out / "shots" / f"{name}.png"))
 
 
-def _card_page(out: Path, name: str, spec: dict) -> Path:
+def _card_page(out: Path, name: str, spec: Card) -> Path:
     parts = [
         '<!doctype html><meta charset="utf-8">',
         f"<style>{(HERE / 'card.css').read_text()}</style>",
         '<div class="grid"></div>',
     ]
-    if spec["kicker"]:
+    if spec.kicker:
         parts.append(
-            f'<div class="kicker a" style="--d:.1s">{html.escape(spec["kicker"])}</div>'
+            f'<div class="kicker a" style="--d:.1s">{html.escape(spec.kicker)}</div>'
         )
-    parts.append(f'<h1 class="a" style="--d:.35s">{spec["title"]}</h1>')
-    if spec["sub"]:
+    parts.append(f'<h1 class="a" style="--d:.35s">{spec.title}</h1>')
+    if spec.sub:
         parts.append(
-            f'<div class="sub a" style="--d:1.3s">{html.escape(spec["sub"])}</div>'
+            f'<div class="sub a" style="--d:1.3s">{html.escape(spec.sub)}</div>'
         )
     path = out / "cards" / f"{name}.html"
     path.parent.mkdir(exist_ok=True)
@@ -424,7 +437,7 @@ def _card_page(out: Path, name: str, spec: dict) -> Path:
     return path
 
 
-def _run_card(d: Demo, name: str, spec: dict) -> None:
+def _run_card(d: Demo, name: str, spec: Card) -> None:
     d.page.goto(_card_page(d.rec.out, name, spec).as_uri())
     d.page.evaluate("__demo.move(-200, -200, 0)")
     d.page.wait_for_timeout(400)
@@ -432,20 +445,20 @@ def _run_card(d: Demo, name: str, spec: dict) -> None:
     d.rec.is_card = True
     try:
         d.page.evaluate("document.body.classList.add('go')")
-        d.page.wait_for_timeout(int(spec["seconds"] * 1000))
+        d.page.wait_for_timeout(int(spec.seconds * 1000))
     except BaseException:
         d.rec.abandon()
         raise
     d.rec.stop()
 
 
-def _run_scene(d: Demo, name: str, spec: dict, number: int) -> None:
+def _run_scene(d: Demo, name: str, spec: Scene, number: int) -> None:
     d.cam = (WIDTH / 2, HEIGHT / 2, 1.0)
     d.rec.start(name)
-    if spec["caption"]:
-        d.rec.caption = [spec["step"] or str(number), spec["caption"]]
+    if spec.caption:
+        d.rec.caption = [str(number), spec.caption]
     try:
-        spec["run"](d)
+        spec.run(d)
     except Skip as reason:
         print(f"{name}: skipped, {reason}", flush=True)
         d.rec.stop(keep=False)
@@ -472,7 +485,7 @@ def _launch(start, *args, **kwargs):
         return start(*args, **kwargs)
 
 
-def load(scenes_file: Path) -> tuple[dict[str, dict], list[Path]]:
+def load(scenes_file: Path) -> tuple[dict[str, Scene | Card], list[Path]]:
     """The scenes that registered, and the files that failed to load.
 
     scenes.py, then each scene_NN.py beside it: 1 file per scene lets 1
@@ -490,7 +503,7 @@ def _import(path: Path) -> bool:
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - a scene file can raise anything
         print(f"{path.name}: not loaded, {type(error).__name__}: {error}", flush=True)
         return False
     return True
@@ -513,7 +526,8 @@ def record(
     refresh(out)
     state = out / "state.json"
     numbers = {
-        n: i + 1 for i, n in enumerate(n for n in sorted(scenes) if "run" in scenes[n])
+        n: i + 1
+        for i, n in enumerate(n for n in sorted(scenes) if isinstance(scenes[n], Scene))
     }
     with sync_playwright() as p:
         browser = _launch(
@@ -535,8 +549,8 @@ def record(
         demo = Demo(page, Recorder(page, out, scale))
         try:
             for name in names:
-                if "card" in scenes[name]:
-                    _run_card(demo, name, scenes[name]["card"])
+                if isinstance(scenes[name], Card):
+                    _run_card(demo, name, scenes[name])
                 else:
                     _run_scene(demo, name, scenes[name], numbers[name])
         finally:
@@ -549,7 +563,7 @@ def record(
             browser.close()
 
 
-def login(out: Path, url: str, minutes: int = 20) -> None:
+def login(out: Path, url: str) -> None:
     """Saves a signed-in session for `url` to `out/state.json`.
 
     1 browser profile per app keeps the identity provider's own cookie,
@@ -557,19 +571,19 @@ def login(out: Path, url: str, minutes: int = 20) -> None:
     runs without a window, and asks the user only when that fails.
     """
     (out / "login.txt").write_text(url)
-    with _turn(_profile(url)):
+    with _turn(profile(url)):
         if _silent(out, url):
             print("signed in without a window:", out / "state.json", flush=True)
             return
-        _window(out, url, minutes)
+        _window(out, url)
 
 
-def _window(out: Path, url: str, minutes: int) -> None:
+def _window(out: Path, url: str) -> None:
     """Waits for the user to sign in to `url` in a browser window."""
     with sync_playwright() as p:
         context = _launch(
             p.chromium.launch_persistent_context,
-            str(_profile(url)),
+            str(profile(url)),
             channel="chromium",
             headless=False,
             viewport={"width": 1100, "height": 800},
@@ -595,7 +609,7 @@ def _window(out: Path, url: str, minutes: int) -> None:
             "sign in in the window titled SIGN IN HERE; it closes when the app shows",
             flush=True,
         )
-        deadline, seen = time.time() + minutes * 60, None
+        deadline, seen = time.time() + SIGN_IN, None
         while time.time() < deadline:
             urls = [candidate.url for candidate in context.pages]
             where = " ".join(u.split("?")[0] for u in urls)
@@ -632,7 +646,7 @@ def refresh(out: Path) -> None:
         return
     url = saved.read_text().strip()
     renewed = out / "renewed"
-    with _turn(_profile(url)):
+    with _turn(profile(url)):
         if renewed.exists() and time.time() - renewed.stat().st_mtime < FRESH:
             return
         if not _silent(out, url):
@@ -666,13 +680,6 @@ def _renew(context, out: Path) -> None:
     (out / "renewed").touch()
 
 
-def _profile(url: str) -> Path:
-    """The browser profile of 1 app, shared by every demo of it."""
-    host = url.split("/")[2].replace(":", "-")
-    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-    return cache / "vstack" / "demo-video" / "profiles" / host
-
-
 def _in_app(page_url: str, url: str) -> bool:
     origin = "/".join(url.split("/")[:3])
     path = page_url[len(origin) :].split("?")[0]
@@ -687,7 +694,7 @@ def _silent(out: Path, url: str) -> bool:
         with sync_playwright() as p:
             context = _launch(
                 p.chromium.launch_persistent_context,
-                str(_profile(url)),
+                str(profile(url)),
                 channel="chromium",
                 headless=True,
             )
@@ -698,6 +705,6 @@ def _silent(out: Path, url: str) -> bool:
                 _renew(context, out)
             context.close()
             return inside
-    except Exception as error:  # a profile in use by another recording, a timeout
+    except Exception as error:  # noqa: BLE001 - a profile in use, a timeout
         print(f"no sign-in without a window: {str(error).splitlines()[0]}", flush=True)
         return False

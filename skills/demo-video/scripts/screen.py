@@ -16,31 +16,40 @@ writes. `edit`, `build` and `check` then run as usual.
 import json
 import re
 import shutil
-import subprocess
 import time
 from datetime import datetime
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
-from edit import ROOM, narration
-from media import ffmpeg, retire, seconds
+from camera import OUTPUT, Note, aim
+from media import log, pts, seconds
 from PIL import Image
+from work import Take, retire, target_length
 
-FPS = 30
-WIDTH = (
-    1920  # page pixels of the frames; the build crops from them and outputs 1920x1080
-)
+SAMPLE = 30  # frames per second taken from the recording; the build sets its own
+WIDTH, HEIGHT = OUTPUT  # page pixels of the frames: 1 page pixel per output pixel
 SHARP = 2  # frames are WIDTH * SHARP wide, so a 2x zoom stays sharp
+LOOK = (480, 270)  # the size each frame is compared at
+DIFF = 28  # a pixel that changes by more than 28 of 255 has changed
 STILL = 1.0  # seconds with no change before a burst counts as a new action
 KEEP = 0.7  # seconds of a still gap that stay in the video
 SLACK = 1.5  # seconds a mark can fall outside its still gap: the clocks differ a little
-CARET = 14  # changed pixels, of 480x270: a caret blink measured 8 to 10, a typed letter 19 to 27
+CARET = 14  # changed pixels, of LOOK: a caret blink measured 8 to 10, a typed letter 19 to 27
 ZOOM = 1.5  # the zoom on a small change
+LEAST = 1.2  # the least zoom worth a camera move
+FILL = 0.5  # a zoom shows a change at about half the view's width and height
+TINY = 0.01  # the smallest changed area a zoom is sized for: a caret, a dot
+NOTICED = 20  # changed pixels, of LOOK, that a viewer sees as a result
+CAMERA_LEAD = 0.3  # seconds the camera starts before the click it goes to
+ZOOM_IN, ZOOM_OUT = 0.8, 0.7  # seconds a zoom in and a zoom back out take
+AFTER = 0.8  # seconds the scene runs after its last zoom out starts
 LONGEST = 3.0  # the longest pause between 2 actions, however long the narration
 HOLD = 1.2  # seconds the zoomed result stays on screen before the camera goes wide
 SMALL = 0.35  # a change smaller than this part of the screen gets a zoom
-GLIDE = 150  # changed pixels per frame, of 480x270: the drawn cursor's glide measured 30 to 100, a click's result 429 and up
+GLIDE = 150  # changed pixels per frame, of LOOK: the drawn cursor's glide measured 30 to 100, a click's result 429 and up
 REACH = 0.7  # seconds the drawn cursor glides before `__demo.click` clicks
+LATE = 0.4  # seconds a click can come after a full glide and still be the landing
 
 
 def mark(out: Path, scene: str, caption: str | None) -> None:
@@ -103,24 +112,20 @@ def _extract(video: Path, raw: Path) -> list[tuple[str, float]]:
     if raw.exists():
         shutil.rmtree(raw)
     raw.mkdir(parents=True)
-    size = WIDTH * SHARP
-    log = subprocess.run(
-        [ffmpeg(), "-hide_banner", "-i", str(video), "-an", "-vf"]
-        + [
-            # 16:9 from the middle, then 1 size for every recording.
-            "crop='min(iw,ih*16/9)':'min(ih,iw*9/16)',"
-            f"scale={size}:{size * 9 // 16}:flags=lanczos,fps={FPS},"
-            "mpdecimate=hi=768:lo=320:frac=0.1,showinfo"
-        ]
-        + ["-fps_mode", "vfr", "-q:v", "3", str(raw / "%06d.jpg")],
-        capture_output=True,
-        text=True,
-    ).stderr
-    stamps = [float(t) for t in re.findall(r"pts_time:([\d.]+)", log)]
+    # 16:9 from the middle, then 1 size for every recording.
+    frames = (
+        "crop='min(iw,ih*16/9)':'min(ih,iw*9/16)',"
+        f"scale={WIDTH * SHARP}:{HEIGHT * SHARP}:flags=lanczos,fps={SAMPLE},"
+        "mpdecimate=hi=768:lo=320:frac=0.1,showinfo"
+    )
+    printed = log(
+        *("-i", str(video), "-an", "-vf", frames),
+        *("-fps_mode", "vfr", "-q:v", "3", str(raw / "%06d.jpg")),
+    )
     names = sorted(p.name for p in raw.glob("*.jpg"))
     if not names:
-        raise SystemExit(f"no frames from {video}:\n{log[-1500:]}")
-    times = list(zip(names, stamps))
+        raise SystemExit(f"no frames from {video}:\n{printed[-1500:]}")
+    times = list(zip(names, pts(printed)))
     listing.write_text(json.dumps({"source": source, "frames": times}))
     return times
 
@@ -135,7 +140,7 @@ def _visible(raw: Path, times: list[tuple[str, float]]) -> list[tuple[str, float
     kept, last = [], None
     for name, at in times:
         small = _small(raw, name)
-        if last is None or int((np.abs(small - last) > 28).sum()) >= CARET:
+        if last is None or _changed(small, last).sum() >= CARET:
             kept.append((name, at))
             last = small
     return kept
@@ -143,8 +148,12 @@ def _visible(raw: Path, times: list[tuple[str, float]]) -> list[tuple[str, float
 
 def _small(raw: Path, name: str) -> np.ndarray:
     image = Image.open(raw / name)
-    image.draft("L", (480, 270))
-    return np.asarray(image.convert("L").resize((480, 270)), dtype=np.int16)
+    image.draft("L", LOOK)
+    return np.asarray(image.convert("L").resize(LOOK), dtype=np.int16)
+
+
+def _changed(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    return np.abs(a - b) > DIFF
 
 
 # --- timing ---
@@ -164,15 +173,13 @@ def _start(
     if offset is not None:
         return (marks[0]["t"] if marks else 0.0) - offset
     started = next((m["t"] for m in marks if m["scene"] == "start"), None)
-    log = subprocess.run(
-        [ffmpeg(), "-hide_banner", "-i", str(video)], capture_output=True, text=True
-    ).stderr
-    stamp = re.search(r"creation_?date\s*:\s*(\S+)|creation_time\s*:\s*(\S+)", log)
+    stamp = re.search(
+        r"creation_?date\s*:\s*(\S+)|creation_time\s*:\s*(\S+)", log("-i", str(video))
+    )
     if stamp:
-        made = datetime.fromisoformat(
-            (stamp.group(1) or stamp.group(2)).replace("Z", "+00:00")
-        )
-        made = made.timestamp()
+        # Python 3.10, on the pip path, reads no trailing Z.
+        utc = (stamp.group(1) or stamp.group(2)).replace("Z", "+00:00")
+        made = datetime.fromisoformat(utc).timestamp()
 
         # Some recorders stamp the end, not the start: take the one the marks fit.
         def inside(s: float) -> bool:
@@ -188,7 +195,7 @@ def _start(
 
 def _gaps(times: list[tuple[str, float]]) -> list[tuple[float, float]]:
     """The still spans: no changed frame for STILL seconds or more."""
-    return [(a, b) for (_, a), (_, b) in zip(times, times[1:]) if b - a >= STILL]
+    return [(a, b) for (_, a), (_, b) in pairwise(times) if b - a >= STILL]
 
 
 def _snap(at: float, gaps: list[tuple[float, float]]) -> float:
@@ -214,57 +221,59 @@ def _scene(
 ) -> None:
     folder = out / "frames" / entry["scene"]
     folder.mkdir(parents=True)
-
-    # Video time: each still gap keeps `keep` seconds, the rest plays as
-    # recorded. `inside` starts with the last frame of the scene before, when
-    # there is one: the screen as it was before this scene's first change.
-    gaps = sum(1 for (_, a), (_, b) in zip(inside, inside[1:]) if b - a >= STILL)
-    keep = KEEP
-    voice = narration(out, entry["scene"])
-    if voice and gaps:
-        # A narration longer than the picture: the pauses grow, so each
-        # result stays on screen while the voice speaks about it.
-        busy = sum(
-            min(b - a, STILL)
-            for (_, a), (_, b) in zip(inside, inside[1:])
-            if b - a < STILL
-        )
-        keep = min(max(KEEP, (seconds(voice) + ROOM - busy) / (gaps + 1)), LONGEST)
-    clock, last, frames, bursts = 0.0, inside[0][1], [], []
-    for name, at in inside:
-        gap = at - last
-        if gap >= STILL:
-            bursts.append((len(frames), clock + keep))
-            clock += keep
-        else:
-            clock += gap
-        last = at
+    frames, bursts, total = _retime(inside, end, target_length(out, entry["scene"]))
+    for name, _ in frames:
         try:
             (folder / name).hardlink_to(raw / name)
         except OSError:
             shutil.copy(raw / name, folder / name)
-        frames.append([name, clock])
-    total = clock + max(min(end - last, keep), KEEP)
-
     camera, events, total = _camera(raw, frames, bursts, total)
-    manifest = {
-        "frames": frames,
-        "end": total,
-        "events": events,
-        "camera": camera,
-        "fast": [],
-        "caption": [str(number), entry["caption"]] if entry.get("caption") else None,
-        "card": False,
-        "size": [WIDTH, WIDTH * 9 // 16],
-        "scale": SHARP,
-        "source": "screen",
-    }
-    (folder / "manifest.json").write_text(json.dumps(manifest))
+    Take(
+        frames=frames,
+        end=total,
+        events=events,
+        camera=camera,
+        fast=[],
+        caption=[str(number), entry["caption"]] if entry.get("caption") else None,
+        card=False,
+        size=[WIDTH, HEIGHT],
+        scale=SHARP,
+        source="screen",
+    ).save(folder / "manifest.json")
     print(
         f"{entry['scene']}: {len(frames)} frames, {total:.1f} s, "
         f"{len(events)} actions, {len(camera)} camera moves",
         flush=True,
     )
+
+
+def _retime(
+    inside: list[tuple[str, float]], end: float, target: float | None
+) -> tuple[list[list], list[tuple[int, float]], float]:
+    """The frames in video time, the start of each burst of change, and the length.
+
+    Each still gap keeps `keep` seconds, the rest plays as recorded. `inside`
+    starts with the last frame of the scene before, when there is one: the
+    screen as it was before this scene's first change.
+    """
+    gaps = len(_gaps(inside))
+    keep = KEEP
+    if target and gaps:
+        # A narration longer than the picture: the pauses grow, so each
+        # result stays on screen while the voice speaks about it.
+        busy = sum(
+            min(b - a, STILL) for (_, a), (_, b) in pairwise(inside) if b - a < STILL
+        )
+        keep = min(max(KEEP, (target - busy) / (gaps + 1)), LONGEST)
+    clock, last, frames, bursts = 0.0, inside[0][1], [], []
+    for name, at in inside:
+        gap = at - last
+        if gap >= STILL:
+            bursts.append((len(frames), clock + keep))
+        clock += keep if gap >= STILL else gap
+        last = at
+        frames.append([name, clock])
+    return frames, bursts, clock + max(min(end - last, keep), KEEP)
 
 
 def _landing(raw: Path, frames: list[list], first: int, stop: int) -> int:
@@ -279,10 +288,10 @@ def _landing(raw: Path, frames: list[list], first: int, stop: int) -> int:
     last = _small(raw, frames[max(first - 1, 0)][0])
     for index in range(first, stop + 1):
         image = _small(raw, frames[index][0])
-        changed = int((np.abs(image - last) > 28).sum())
+        changed = _changed(image, last).sum()
         last = image
         if changed > GLIDE:
-            return index if frames[index][1] - start < REACH + 0.4 else first
+            return index if frames[index][1] - start < REACH + LATE else first
         if frames[index][1] - start >= REACH and index > first:
             return index
     return first
@@ -290,14 +299,13 @@ def _landing(raw: Path, frames: list[list], first: int, stop: int) -> int:
 
 def _camera(
     raw: Path, frames: list[list], bursts: list[tuple[int, float]], total: float
-) -> tuple[list[dict], list[dict], float]:
+) -> tuple[list[Note], list[dict], float]:
     """1 click sound per burst; a zoom on a burst that changes a small area.
 
     Returns the camera notes, the sounds, and the scene length, which grows
     when the last zoom needs time to hold its result before it goes wide.
     """
     camera, events, zoomed = [], [], False
-    height = WIDTH * 9 // 16
     for index, (first, _) in enumerate(bursts):
         stop = bursts[index + 1][0] - 1 if index + 1 < len(bursts) else len(frames) - 1
         first = _landing(raw, frames, first, stop)
@@ -305,29 +313,27 @@ def _camera(
         events.append({"t": at, "kind": "click"})
         before = _small(raw, frames[max(first - 1, 0)][0])
         after = _small(raw, frames[stop][0])
-        changed = np.argwhere(np.abs(after - before) > 28)
-        if len(changed) < 20:
+        changed = np.argwhere(_changed(after, before))
+        if len(changed) < NOTICED:
             continue
         (y0, x0), (y1, x1) = changed.min(0), changed.max(0)
-        area = (x1 - x0) * (y1 - y0) / (480 * 270)
+        area = (x1 - x0) * (y1 - y0) / (LOOK[0] * LOOK[1])
         if area <= SMALL:
-            cx = (x0 + x1) / 2 / 480 * WIDTH
-            cy = (y0 + y1) / 2 / 270 * height
-            zoom = min(ZOOM, max(1.2, 0.5 / max(area, 0.01) ** 0.5))
-            half_w, half_h = WIDTH / zoom / 2, height / zoom / 2
-            cx = min(max(cx, half_w), WIDTH - half_w)
-            cy = min(max(cy, half_h), height - half_h)
-            camera.append(
-                {"t": max(at - 0.3, 0), "cx": cx, "cy": cy, "z": zoom, "d": 0.8}
-            )
+            cx = (x0 + x1) / 2 / LOOK[0] * WIDTH
+            cy = (y0 + y1) / 2 / LOOK[1] * HEIGHT
+            fill = FILL / max(area, TINY) ** 0.5
+            cx, cy, zoom = aim(cx, cy, min(ZOOM, max(LEAST, fill)), OUTPUT, SHARP)
+            camera.append(Note(max(at - CAMERA_LEAD, 0), cx, cy, zoom, ZOOM_IN))
             zoomed = True
         elif zoomed:
-            camera.append(
-                {"t": at, "cx": WIDTH / 2, "cy": height / 2, "z": 1.0, "d": 0.7}
-            )
+            camera.append(_wide(at))
             zoomed = False
     if zoomed:
-        out = max(total - 0.8, camera[-1]["t"] + camera[-1]["d"] + HOLD)
-        camera.append({"t": out, "cx": WIDTH / 2, "cy": height / 2, "z": 1.0, "d": 0.7})
-        total = max(total, out + 0.8)
+        out = max(total - AFTER, camera[-1].t + camera[-1].d + HOLD)
+        camera.append(_wide(out))
+        total = max(total, out + AFTER)
     return camera, events, total
+
+
+def _wide(at: float) -> Note:
+    return Note(at, WIDTH / 2, HEIGHT / 2, 1.0, ZOOM_OUT)

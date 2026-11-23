@@ -1,9 +1,11 @@
 import json
+import subprocess
+from datetime import datetime
 
 import pytest
 import screen
 from conftest import marks
-from media import untaken
+from work import untaken
 
 
 @pytest.fixture
@@ -51,3 +53,36 @@ def test_a_scene_with_no_frames_loses_its_old_take(out, film):
 
     assert not (out / "frames" / "02").exists()
     assert untaken(out) == ["02"]
+
+
+def test_a_creation_time_in_utc_sets_the_start(tmp_path):
+    video = tmp_path / "walk.mov"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi"]
+        + ["-i", "testsrc2=size=320x180:rate=30:duration=2", "-pix_fmt", "yuv420p"]
+        + ["-metadata", "creation_time=2026-11-10T12:00:00.000000Z", str(video)],
+        check=True,
+    )
+    made = datetime.fromisoformat("2026-11-10T12:00:00+00:00").timestamp()
+
+    start = screen._start(video, [{"t": made + 0.5, "scene": "01"}], 2.0, None)
+
+    assert start == made
+
+
+INSIDE = [("a", 0.0), ("b", 0.5), ("c", 3.0), ("d", 3.2)]
+
+
+def test_a_still_gap_keeps_a_short_pause():
+    frames, bursts, total = screen._retime(INSIDE, 4.0, None)
+
+    assert [t for _, t in frames] == pytest.approx([0.0, 0.5, 1.2, 1.4])
+    assert bursts == [(2, pytest.approx(1.2))]
+    assert total == pytest.approx(2.1)
+
+
+def test_a_long_narration_grows_the_pause_up_to_the_longest():
+    frames, _, total = screen._retime(INSIDE, 4.0, 10.0)
+
+    assert [t for _, t in frames] == pytest.approx([0.0, 0.5, 3.5, 3.7])
+    assert total == pytest.approx(4.5)
