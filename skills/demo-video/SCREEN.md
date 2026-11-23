@@ -15,10 +15,9 @@ reply comes, then they act. Their own mouse is in the video, so skip
 
 Tell the user before step 1 when the request hits one of these:
 
-- **A native app without computer use.** Computer use is in the Pro, Max
-  and Ultra plans only, not Team or Enterprise, and Claude Code in a
-  terminal has none. Offer a web app, or let the user click while you mark
-  the scenes.
+- **A native app without computer use.** This applies when no
+  computer-use tool is in your tool list. Offer a web app, or let the user
+  click while you mark the scenes.
 - **Typing in a terminal or an IDE.** Computer use can click there but not
   type. A CLI tool is better shown in a web terminal, or not at all.
 - **A recording over 30 MB in claude.ai or desktop chat.** That is about 2
@@ -30,7 +29,8 @@ Tell the user before step 1 when the request hits one of these:
 1. **Brief, mode, narration.** Step 1 of `SKILL.md`, the Mode table, then
    `narration/NN.txt` per scene by the Narration section. Ask which voice
    (the Voice section), and run `demo narrate <slug>` unless the user reads
-   it. No cards: the screen path films only the app.
+   it. The screen path films only the app, so a `product` video here has
+   no cards: tell the user so.
 2. **Where the file goes.** In Cowork, ask the user to attach the folder the
    recorder saves to (the Desktop on a Mac). In claude.ai or desktop chat,
    the user uploads the file after step 5, and an upload stops at 30 MB:
@@ -65,15 +65,12 @@ Tell the user before step 1 when the request hits one of these:
 6. **Stop the recorder.** With computer use press Cmd+Ctrl+Esc; else ask
    the user to click Stop in the menu bar. Get the file: from the attached
    folder, or ask for the upload.
-7. **Finish.** `demo finish <slug> <file>`, then `demo edit <slug>`,
-   `demo build <slug>` and `demo check <slug>`. `finish` prints the
-   actions and zooms per scene. When a scene has no frames or its cut is
-   wrong, run `finish` again with `--offset <s>`: the seconds into the
-   recording at which the `start` mark falls.
-8. **Look and deliver.** Step 8 and 9 of `SKILL.md`: `check` must print
-   `PASS`, and `final.sheet.jpg` must show each scene's result. Put
-   `final.mp4` where the user gets it: the attached folder, or the outputs
-   folder of the chat.
+7. **Finish.** `demo finish <slug> <file>`. It prints the actions and
+   zooms per scene. When a scene has no frames or its cut is wrong, run
+   `finish` again with `--offset <s>`: the seconds into the recording at
+   which the `start` mark falls. Then do steps 7 and 8 of `SKILL.md`.
+8. **Deliver.** Step 9 of `SKILL.md`. Put `final.mp4` where the user gets
+   it: the attached folder, or the outputs folder of the chat.
 
 ## What finish does
 
