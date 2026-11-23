@@ -21,7 +21,6 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-
 from script import parts, words
 
 MODEL = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"

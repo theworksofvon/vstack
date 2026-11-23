@@ -122,21 +122,29 @@ to show the idea than these beats, use it and keep the 4 fixed rules.
 ```python
 from kit import card, scene, skip
 
-card("00", kicker="Product", title="The problem in <em>1 line</em>.", sub="...", seconds=5)
+card(
+    "00",
+    kicker="Product",
+    title="The problem in <em>1 line</em>.",
+    sub="...",
+    seconds=5,
+)
+
 
 @scene("01", "Caption shown for the first 3 seconds")
 def create(d):
     d.goto(APP)
     button = d.page.get_by_role("button", name="New asset")
-    d.ring(button, "Start here", zoom=1.3)   # ring + label, camera moves in
-    d.click(button)                          # cursor glides, ripple, click sound
+    d.ring(button, zoom=1.3)  # ring, camera moves in
+    d.click(button)  # cursor glides, ripple, click sound
     d.focus(d.page.get_by_role("dialog"), zoom=1.2)
-    d.type("Greater Duchess")                # key sounds; types into the focused element
-    with d.cut():                            # this wait is not in the video
+    d.type("Greater Duchess")  # key sounds; types into the focused element
+    with d.cut():  # this wait is not in the video
         d.page.get_by_text("Parsed").wait_for(timeout=600_000)
     with d.fast_forward("Remaining fields · 10× speed"):
-        for row in rows: d.click(row)        # plays 10x, label on screen
-    d.wide()                                 # camera back to the full page
+        for row in rows:
+            d.click(row)  # plays 10x, label on screen
+    d.wide()  # camera back to the full page
 ```
 
 Also: `d.wait(s)`, `d.until(video_seconds)`, `d.point(el)`, `d.notice(title,

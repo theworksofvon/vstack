@@ -19,7 +19,6 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 from kokoro import KPipeline
-
 from script import parts, words
 
 RATE = 24_000

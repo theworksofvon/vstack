@@ -20,6 +20,7 @@ import sys
 import time
 from pathlib import Path
 
+from media import retire
 from playwright.sync_api import Locator, Page, sync_playwright
 
 HERE = Path(__file__).parent
@@ -169,12 +170,8 @@ class Recorder:
             f"{len(self.events)} sounds, {len(self.camera)} camera moves",
             flush=True,
         )
-        good = self.out / "frames" / self.name
-        if good.exists():
-            old = self.out / "frames-old" / f"{self.name}-{int(time.time())}"
-            old.parent.mkdir(parents=True, exist_ok=True)
-            good.rename(old)
-        self.dir.rename(good)
+        retire(self.out, self.name)
+        self.dir.rename(self.out / "frames" / self.name)
         self.dir = None
 
     def abandon(self) -> None:
@@ -475,28 +472,43 @@ def _launch(start, *args, **kwargs):
         return start(*args, **kwargs)
 
 
-def load(scenes_file: Path) -> dict[str, dict]:
+def load(scenes_file: Path) -> tuple[dict[str, dict], list[Path]]:
+    """The scenes that registered, and the files that failed to load.
+
+    scenes.py, then each scene_NN.py beside it: 1 file per scene lets 1
+    agent own it, so an error in another agent's file only skips that file.
+    """
     SCENES.clear()
     sys.path.insert(0, str(scenes_file.parent))
-    # scenes.py, then each scene_NN.py beside it: 1 file per scene lets 1 agent own it.
-    for path in [scenes_file, *sorted(scenes_file.parent.glob("scene_*.py"))]:
-        if not path.exists():
-            continue
-        spec = importlib.util.spec_from_file_location(path.stem, path)
-        module = importlib.util.module_from_spec(spec)
+    files = [scenes_file, *sorted(scenes_file.parent.glob("scene_*.py"))]
+    broken = [path for path in files if path.exists() and not _import(path)]
+    return dict(SCENES), broken
+
+
+def _import(path: Path) -> bool:
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    module = importlib.util.module_from_spec(spec)
+    try:
         spec.loader.exec_module(module)
-    return dict(SCENES)
+    except Exception as error:
+        print(f"{path.name}: not loaded, {type(error).__name__}: {error}", flush=True)
+        return False
+    return True
 
 
 def record(
     out: Path, names: list[str] | None, scale: int = 2, headed: bool = False
 ) -> None:
     """Records the scenes of `out/scenes.py`, in the order of `names`."""
-    scenes = load(out / "scenes.py")
+    scenes, broken = load(out / "scenes.py")
+    if not names and broken:
+        sys.exit(
+            f"{[p.name for p in broken]} did not load: fix them, or name the scenes to record"
+        )
     names = names or sorted(scenes)
     missing = [n for n in names if n not in scenes]
     if missing:
-        sys.exit(f"no scene named {missing}; scenes.py has {sorted(scenes)}")
+        sys.exit(f"no scene named {missing}; the scene files have {sorted(scenes)}")
     (out / "scenes.json").write_text(json.dumps(sorted(scenes)))
     refresh(out)
     state = out / "state.json"
@@ -545,9 +557,15 @@ def login(out: Path, url: str, minutes: int = 20) -> None:
     runs without a window, and asks the user only when that fails.
     """
     (out / "login.txt").write_text(url)
-    if _silent(out, url):
-        print("signed in without a window:", out / "state.json", flush=True)
-        return
+    with _turn(_profile(url)):
+        if _silent(out, url):
+            print("signed in without a window:", out / "state.json", flush=True)
+            return
+        _window(out, url, minutes)
+
+
+def _window(out: Path, url: str, minutes: int) -> None:
+    """Waits for the user to sign in to `url` in a browser window."""
     with sync_playwright() as p:
         context = _launch(
             p.chromium.launch_persistent_context,
@@ -591,7 +609,7 @@ def login(out: Path, url: str, minutes: int = 20) -> None:
                 seen = where
             if any(_in_app(u, url) for u in urls):
                 time.sleep(2)
-                _save(context, out / "state.json")
+                _renew(context, out)
                 print("signed in:", out / "state.json", flush=True)
                 context.close()
                 return
@@ -606,20 +624,19 @@ def refresh(out: Path) -> None:
     Scene agents record at the same time and share 1 profile per app, which
     only 1 browser can open. So they take turns, and an agent skips the
     renewal when another one renewed the session in the last FRESH seconds.
+    A recording also saves state.json, so the renewal time is kept apart, in
+    `renewed`, which only a sign-in writes.
     """
     saved = out / "login.txt"
     if not saved.exists():
         return
     url = saved.read_text().strip()
-    state = out / "state.json"
+    renewed = out / "renewed"
     with _turn(_profile(url)):
-        if state.exists() and time.time() - state.stat().st_mtime < FRESH:
+        if renewed.exists() and time.time() - renewed.stat().st_mtime < FRESH:
             return
         if not _silent(out, url):
-            print(
-                "the saved sign-in ran out: run `demo login` to sign in again",
-                flush=True,
-            )
+            sys.exit("the saved sign-in ran out: run `demo login` to sign in again")
 
 
 @contextlib.contextmanager
@@ -642,6 +659,11 @@ def _save(context, state: Path) -> None:
     fresh = state.with_name(f"state.{os.getpid()}.json")
     context.storage_state(path=str(fresh))
     fresh.replace(state)
+
+
+def _renew(context, out: Path) -> None:
+    _save(context, out / "state.json")
+    (out / "renewed").touch()
 
 
 def _profile(url: str) -> Path:
@@ -673,7 +695,7 @@ def _silent(out: Path, url: str) -> bool:
             page.goto(url, wait_until="networkidle", timeout=45_000)
             inside = _in_app(page.url, url)
             if inside:
-                _save(context, out / "state.json")
+                _renew(context, out)
             context.close()
             return inside
     except Exception as error:  # a profile in use by another recording, a timeout

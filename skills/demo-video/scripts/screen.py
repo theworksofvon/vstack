@@ -22,10 +22,9 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
-
 from edit import ROOM, narration
-from media import ffmpeg, seconds
+from media import ffmpeg, retire, seconds
+from PIL import Image
 
 FPS = 30
 WIDTH = (
@@ -47,7 +46,8 @@ REACH = 0.7  # seconds the drawn cursor glides before `__demo.click` clicks
 def mark(out: Path, scene: str, caption: str | None) -> None:
     """Appends `scene` with the time now. `start` marks the start of the recording."""
     entry = {"t": time.time(), "scene": scene, "caption": caption}
-    with (out / "marks.jsonl").open("a") as marks:
+    # `start` begins a new recording: marks of an earlier one must not mix in.
+    with (out / "marks.jsonl").open("w" if scene == "start" else "a") as marks:
         marks.write(json.dumps(entry) + "\n")
     print(
         f"{scene} at {datetime.fromtimestamp(entry['t']).isoformat(timespec='seconds')}"
@@ -71,6 +71,8 @@ def finish(out: Path, video: Path, offset: float | None = None) -> None:
         json.dumps(list(dict.fromkeys(m["scene"] for m in scenes)))
     )
     cuts = [0.0] + [_snap(m["t"] - start, gaps) for m in scenes[1:]] + [length]
+    for entry in scenes:
+        retire(out, entry["scene"])
     for index, entry in enumerate(scenes):
         a, b = cuts[index], cuts[index + 1]
         inside = [(n, t) for n, t in times if a <= t < b]
@@ -87,12 +89,20 @@ def finish(out: Path, video: Path, offset: float | None = None) -> None:
 
 
 def _extract(video: Path, raw: Path) -> list[tuple[str, float]]:
-    """Saves each frame that differs from the one before, cropped to 16:9."""
+    """Saves each frame that differs from the one before, cropped to 16:9.
+
+    The frames stay in `raw` for the next `finish` of the same video. A new
+    video, or the same file filmed again, extracts them again.
+    """
+    listing = raw / "times.json"
+    source = _source(video)
+    if listing.exists():
+        cached = json.loads(listing.read_text())
+        if cached.get("source") == source:
+            return [tuple(x) for x in cached["frames"]]
     if raw.exists():
-        listing = raw / "times.json"
-        if listing.exists():
-            return [tuple(x) for x in json.loads(listing.read_text())]
-    raw.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(raw)
+    raw.mkdir(parents=True)
     size = WIDTH * SHARP
     log = subprocess.run(
         [ffmpeg(), "-hide_banner", "-i", str(video), "-an", "-vf"]
@@ -111,8 +121,13 @@ def _extract(video: Path, raw: Path) -> list[tuple[str, float]]:
     if not names:
         raise SystemExit(f"no frames from {video}:\n{log[-1500:]}")
     times = list(zip(names, stamps))
-    (raw / "times.json").write_text(json.dumps(times))
+    listing.write_text(json.dumps({"source": source, "frames": times}))
     return times
+
+
+def _source(video: Path) -> dict:
+    stat = video.stat()
+    return {"path": str(video.resolve()), "size": stat.st_size, "mtime": stat.st_mtime}
 
 
 def _visible(raw: Path, times: list[tuple[str, float]]) -> list[tuple[str, float]]:
@@ -198,10 +213,6 @@ def _scene(
     number: int,
 ) -> None:
     folder = out / "frames" / entry["scene"]
-    if folder.exists():
-        old = out / "frames-old" / f"{entry['scene']}-{int(time.time())}"
-        old.parent.mkdir(parents=True, exist_ok=True)
-        folder.rename(old)
     folder.mkdir(parents=True)
 
     # Video time: each still gap keeps `keep` seconds, the rest plays as

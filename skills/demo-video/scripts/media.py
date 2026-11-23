@@ -10,6 +10,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from functools import cache
 from pathlib import Path
 
@@ -21,13 +22,9 @@ def takes(out: Path) -> list[str]:
     folder of a scene that the list does not name is an old take, and is
     left out. Without the list, every folder with a manifest counts.
     """
-    found = sorted(
-        p.name for p in (out / "frames").iterdir() if (p / "manifest.json").exists()
-    )
-    listed = out / "scenes.json"
-    if not listed.exists():
+    found, names = _found(out), _listed(out)
+    if names is None:
         return found
-    names = json.loads(listed.read_text())
     for name in sorted(set(found) - set(names)):
         print(f"{name}: not in the scene list, left out (an old take)", flush=True)
     return [n for n in names if n in found]
@@ -35,10 +32,36 @@ def takes(out: Path) -> list[str]:
 
 def untaken(out: Path) -> list[str]:
     """The scenes in `scenes.json` that have no take yet."""
-    listed = out / "scenes.json"
-    if not listed.exists():
+    found = set(_found(out))
+    return [n for n in _listed(out) or [] if n not in found]
+
+
+def retire(out: Path, name: str) -> None:
+    """Moves the take of scene `name` to `frames-old/`, when there is one."""
+    folder = out / "frames" / name
+    if not folder.exists():
+        return
+    old = out / "frames-old" / f"{name}-{int(time.time())}"
+    old.parent.mkdir(parents=True, exist_ok=True)
+    folder.rename(old)
+
+
+def concat(path: Path) -> str:
+    """1 `file` line of an ffmpeg concat list, safe for a quote in the path."""
+    quoted = str(path).replace("'", "'\\''")
+    return f"file '{quoted}'\n"
+
+
+def _found(out: Path) -> list[str]:
+    frames = out / "frames"
+    if not frames.exists():
         return []
-    return [n for n in json.loads(listed.read_text()) if n not in takes(out)]
+    return sorted(p.name for p in frames.iterdir() if (p / "manifest.json").exists())
+
+
+def _listed(out: Path) -> list[str] | None:
+    listed = out / "scenes.json"
+    return json.loads(listed.read_text()) if listed.exists() else None
 
 
 @cache
