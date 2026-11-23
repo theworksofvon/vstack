@@ -61,11 +61,10 @@ read it when you set a length or a pace.
    run `demo login <slug> <url>` in the background. Tell the user that the
    sign-in is kept in the cache folder, in `profiles/<host>` and in the
    work folder's `state.json`, and that deleting those removes it. `login`
-   first tries the
-   saved sign-in of that app without a window. When it opens a window,
-   tell the user: find the window titled **SIGN IN HERE (demo-video)**,
-   not their own Chrome; sign in there; click **Accept** if an "Authorize
-   App" screen shows. It prints each page the window reaches, so read its
+   first tries the saved sign-in of that app without a window. When it
+   opens a window, tell the user: find the window titled **SIGN IN HERE
+   (demo-video)**, not their own Chrome; sign in there; click **Accept** if
+   an "Authorize App" screen shows. It prints each page the window reaches, so read its
    output to say where a sign-in stopped.
    Done when a plain page load of the app shows data.
 3. **Narration first.** Write `narration/NN.txt` per scene and card by
